@@ -257,7 +257,7 @@ export default function LoginClemens({
 
           {view === "verify" && (
             <Message
-              title="Bestätige deine E-Mail"
+              title="Bestätige deine E&#8209;Mail"
               text={`Wir haben einen Bestätigungslink an ${email} geschickt. Sobald du ihn öffnest, ist dein Konto aktiv.`}
               action="Andere E-Mail verwenden"
               onAction={() => go("register")}
@@ -269,12 +269,16 @@ export default function LoginClemens({
           )}
         </div>
 
-        <p className="m-0 text-sm text-[#5d6573]">
-          {isRegister ? "Schon ein Konto? " : "Noch kein Konto? "}
-          <button type="button" onClick={() => go(isRegister ? "login" : "register")} className={linkCls}>
-            {isRegister ? "Anmelden" : "Konto erstellen"}
-          </button>
-        </p>
+        {view === "login" || view === "register" ? (
+          <p className="m-0 text-sm text-[#5d6573]">
+            {isRegister ? "Schon ein Konto? " : "Noch kein Konto? "}
+            <button type="button" onClick={() => go(isRegister ? "login" : "register")} className={linkCls}>
+              {isRegister ? "Anmelden" : "Konto erstellen"}
+            </button>
+          </p>
+        ) : (
+          <span aria-hidden />
+        )}
       </main>
 
       <aside className="hidden min-h-screen flex-[1_1_380px] flex-col justify-end bg-[#2f5bea] p-14 text-white min-[861px]:flex">
