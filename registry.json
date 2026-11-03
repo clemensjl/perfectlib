@@ -7,7 +7,7 @@
       "name": "login-clemens",
       "type": "registry:block",
       "title": "Login & Registrieren",
-      "description": "Anmelden und Konto erstellen in einem Element: E-Mail und Passwort, Anmeldelink per Mail, Google und Apple. Mit Fehler-, Lade- und Bestätigungszuständen.",
+      "description": "E-Mail zuerst: ein Feld, ein Knopf, danach automatisch Passwort oder Konto erstellen. Inline-Fehler, Tippfehler-Vorschlag, Passwort-Checkliste, Anmeldelink, Google und Apple. Demo: clemens@beispiel.at hat schon ein Konto.",
       "author": "Clemens",
       "categories": ["auth"],
       "files": [
