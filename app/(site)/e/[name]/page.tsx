@@ -54,7 +54,7 @@ export default async function ElementPage({ params }: PageProps<"/e/[name]">) {
           <iframe
             src={`/preview/${item.name}`}
             title={`Vorschau: ${item.title}`}
-            className="block h-[640px] w-full"
+            className="block h-[760px] w-full"
           />
         </div>
         <a

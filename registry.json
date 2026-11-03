@@ -6,8 +6,8 @@
     {
       "name": "login-clemens",
       "type": "registry:block",
-      "title": "Login-Screen",
-      "description": "E-Mail und Passwort, Anmeldelink per Mail, Google und Apple. Mit Fehler-, Lade- und Erfolgszustand.",
+      "title": "Login & Registrieren",
+      "description": "Anmelden und Konto erstellen in einem Element: E-Mail und Passwort, Anmeldelink per Mail, Google und Apple. Mit Fehler-, Lade- und Bestätigungszuständen.",
       "author": "Clemens",
       "categories": ["auth"],
       "files": [
