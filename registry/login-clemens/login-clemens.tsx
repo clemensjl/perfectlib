@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 
 type LoginProps = {
   productName?: string;
@@ -43,13 +43,49 @@ const suggestFor = (v: string) => {
 };
 const messageOf = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
 
+// Alle Animationen laufen über transform/opacity. Bei "weniger Bewegung" bleibt nur Einblenden,
+// der Lade-Spinner dreht sich trotzdem, weil er Fortschritt anzeigt.
+const MOTION_CSS = `
+@keyframes pl-spin{to{transform:rotate(360deg)}}
+@keyframes pl-in-fwd{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+@keyframes pl-in-back{from{opacity:0;transform:translateX(-18px)}to{opacity:1;transform:none}}
+@keyframes pl-fade{from{opacity:0}to{opacity:1}}
+@keyframes pl-rise{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@keyframes pl-pop{0%{transform:scale(.5)}60%{transform:scale(1.12)}100%{transform:scale(1)}}
+@keyframes pl-draw{to{stroke-dashoffset:0}}
+.pl-spin{animation:pl-spin .7s linear infinite}
+.pl-step{animation:pl-in-fwd .32s cubic-bezier(.23,1,.32,1) both}
+.pl-step[data-dir=back]{animation-name:pl-in-back}
+.pl-rise{animation:pl-rise .2s cubic-bezier(.23,1,.32,1) both}
+.pl-pop{animation:pl-pop .34s cubic-bezier(.23,1,.32,1) both}
+.pl-draw{stroke-dasharray:var(--pl-len);stroke-dashoffset:var(--pl-len);animation:pl-draw .4s var(--pl-delay,0s) cubic-bezier(.65,0,.35,1) forwards}
+.pl-press{transition:transform .14s cubic-bezier(.23,1,.32,1),background-color .15s,border-color .15s}
+.pl-press:active{transform:scale(.97)}
+.pl-field{transition:border-color .15s,box-shadow .15s}
+@media (prefers-reduced-motion:reduce){
+.pl-step,.pl-step[data-dir=back],.pl-rise{animation-name:pl-fade}
+.pl-pop{animation:none}
+.pl-draw{animation-duration:.01s}
+.pl-spin{animation-duration:1.4s}
+.pl-press:active{transform:none}
+}`;
+
+const SHAKE: Keyframe[] = [
+  { transform: "none" },
+  { transform: "translateX(-7px)" },
+  { transform: "translateX(6px)" },
+  { transform: "translateX(-4px)" },
+  { transform: "translateX(2px)" },
+  { transform: "none" },
+];
+
 const inputCls =
-  "h-12 w-full rounded-[10px] border bg-white px-3.5 text-base text-[#15171c] outline-none focus:border-[#2f5bea] focus:ring-[3px] focus:ring-[#2f5bea]/20";
+  "pl-field h-12 w-full rounded-[10px] border bg-white px-3.5 text-base text-[#15171c] outline-none focus:border-[#2f5bea] focus:ring-[3px] focus:ring-[#2f5bea]/20";
 const ghostCls =
-  "flex h-12 items-center justify-center gap-2.5 rounded-[10px] border border-[#d5dae1] bg-white px-5 text-[15px] font-semibold text-[#15171c] hover:bg-[#eef1f4] focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[#2f5bea]";
+  "pl-press flex h-12 items-center justify-center gap-2.5 rounded-[10px] border border-[#d5dae1] bg-white px-5 text-[15px] font-semibold text-[#15171c] hover:bg-[#eef1f4] focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[#2f5bea]";
 // Textlinks bleiben optisch klein, die Klickfläche ist aber mindestens 44 px hoch.
 const textBtnCls =
-  "-mx-2 inline-flex min-h-11 items-center rounded-md px-2 text-sm font-medium text-[#2f5bea] hover:text-[#1d44c4] focus-visible:outline-2 focus-visible:outline-[#2f5bea]";
+  "-mx-2 inline-flex min-h-11 items-center rounded-md px-2 text-sm font-medium text-[#2f5bea] transition-colors duration-150 hover:text-[#1d44c4] focus-visible:outline-2 focus-visible:outline-[#2f5bea]";
 const titleCls = "m-0 text-[40px] leading-[1.05] font-extrabold tracking-[-0.03em]";
 const leadCls = "mt-3 text-base leading-normal text-[#5d6573]";
 
@@ -72,7 +108,9 @@ export default function LoginClemens({
   termsHref = "#",
   rememberEmail = true,
 }: LoginProps) {
-  const [step, setStep] = useState<Step>("email");
+  const [step, setStepRaw] = useState<Step>("email");
+  const [dir, setDir] = useState<"fwd" | "back">("fwd");
+  const formRef = useRef<HTMLDivElement>(null);
   const [email, setEmail] = useState("");
   const [remembered, setRemembered] = useState(false);
   const [name, setName] = useState("");
@@ -109,6 +147,18 @@ export default function LoginClemens({
     terms: (v = terms) => (v ? "" : "Ohne deine Zustimmung können wir kein Konto anlegen."),
   };
 
+  const BACK: Step[] = ["email"];
+  function setStep(next: Step, back = BACK.includes(next)) {
+    setDir(back ? "back" : "fwd");
+    setStepRaw(next);
+  }
+
+  // Einmal kurz schütteln, wenn ein Absenden an Fehlern scheitert.
+  function shake() {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    formRef.current?.animate(SHAKE, { duration: 340, easing: "cubic-bezier(.36,.07,.19,.97)" });
+  }
+
   function setError(key: keyof Errors, message: string) {
     setErrors((e) => ({ ...e, [key]: message || undefined, form: undefined }));
   }
@@ -117,10 +167,10 @@ export default function LoginClemens({
     if (errors[key]) setError(key, (validate[key] as (v: typeof value) => string)(value));
   }
 
-  function go(next: Step) {
+  function go(next: Step, back = true) {
     setErrors({});
     setLoading(false);
-    setStep(next);
+    setStep(next, back);
   }
 
   function remember(value: string) {
@@ -137,6 +187,7 @@ export default function LoginClemens({
       await action();
     } catch (err) {
       setErrors({ form: messageOf(err, fallback) });
+      shake();
     } finally {
       setLoading(false);
     }
@@ -148,7 +199,10 @@ export default function LoginClemens({
     const v = normalizeEmail(email);
     setEmail(v);
     const err = validate.email(v);
-    if (err) return setError("email", err);
+    if (err) {
+      shake();
+      return setError("email", err);
+    }
     setSuggestion("");
     return run(async () => {
       const kind = await checkEmail(v);
@@ -161,7 +215,10 @@ export default function LoginClemens({
     e.preventDefault();
     if (loading) return;
     const err = validate.pw();
-    if (err) return setError("pw", err);
+    if (err) {
+      shake();
+      return setError("pw", err);
+    }
     return run(async () => {
       await onLogin(email, password);
       remember(email);
@@ -173,7 +230,10 @@ export default function LoginClemens({
     e.preventDefault();
     if (loading) return;
     const next: Errors = { name: validate.name(), pw: validate.pw(), terms: validate.terms() };
-    if (next.name || next.pw || next.terms) return setErrors(next);
+    if (next.name || next.pw || next.terms) {
+      shake();
+      return setErrors(next);
+    }
     return run(async () => {
       await onRegister(name.trim(), email, password);
       remember(email);
@@ -232,10 +292,11 @@ export default function LoginClemens({
 
   return (
     <div className="flex min-h-screen flex-wrap bg-white text-[#15171c]">
+      <style>{MOTION_CSS}</style>
       <main className="flex min-w-0 flex-[999_1_520px] flex-col justify-between gap-10 px-[clamp(24px,6vw,88px)] py-10">
         <div className="text-lg font-bold tracking-[-0.01em]">{productName}</div>
 
-        <div className="w-full max-w-[400px]">
+        <div key={step} ref={formRef} data-dir={dir} className="pl-step w-full max-w-[400px]">
           {step === "email" && (
             <>
               <h1 className={titleCls}>{remembered ? "Willkommen zurück" : "Anmelden oder registrieren"}</h1>
@@ -268,7 +329,7 @@ export default function LoginClemens({
                     className={`${inputCls} ${border("email")}`}
                   />
                   {suggestion && (
-                    <p className="m-0 text-sm text-[#5d6573]">
+                    <p className="pl-rise m-0 text-sm text-[#5d6573]">
                       Meintest du{" "}
                       <button type="button" onClick={() => { setEmail(suggestion); setSuggestion(""); setError("email", ""); }} className={textBtnCls}>
                         {suggestion}
@@ -346,8 +407,8 @@ export default function LoginClemens({
                 <Field id="pl-pw" label="Passwort" error={errors.pw}>
                   {passwordField("new-password", "pl-pw-rule")}
                   {capsLock && <CapsLockHint />}
-                  <p id="pl-pw-rule" className={`m-0 flex items-center gap-2 text-[13px] ${pwOk ? "text-[#13795b]" : "text-[#5d6573]"}`}>
-                    <CheckIcon on={pwOk} />
+                  <p id="pl-pw-rule" className={`m-0 flex items-center gap-2 text-[13px] transition-colors duration-200 ${pwOk ? "text-[#13795b]" : "text-[#5d6573]"}`}>
+                    <CheckIcon key={String(pwOk)} on={pwOk} />
                     Mindestens {MIN_PW} Zeichen
                   </p>
                 </Field>
@@ -378,6 +439,7 @@ export default function LoginClemens({
 
           {step === "sent" && (
             <Message
+              icon="mail"
               title="Schau in dein Postfach"
               text={`Wir haben einen Anmeldelink an ${email} geschickt. Ein Klick darauf meldet dich an.`}
               action="Zurück"
@@ -387,6 +449,7 @@ export default function LoginClemens({
 
           {step === "verify" && (
             <Message
+              icon="mail"
               title="Bestätige deine E&#8209;Mail"
               text={`Wir haben einen Bestätigungslink an ${email} geschickt. Sobald du ihn öffnest, ist dein Konto aktiv.`}
               action="Andere E-Mail verwenden"
@@ -395,7 +458,7 @@ export default function LoginClemens({
           )}
 
           {step === "done" && (
-            <Message title="Angemeldet" text="Du wirst weitergeleitet." action="Nochmal von vorn" onAction={() => go("email")} />
+            <Message icon="check" title="Angemeldet" text="Du wirst weitergeleitet." action="Nochmal von vorn" onAction={() => go("email")} />
           )}
         </div>
 
@@ -423,7 +486,7 @@ function Field({ id, label, error, children }: { id: string; label: string; erro
 function InlineError({ id, message }: { id: string; message?: string }) {
   if (!message) return null;
   return (
-    <p id={id} className="m-0 flex items-start gap-2 text-sm leading-[1.4] text-[#a3201b]">
+    <p id={id} className="pl-rise m-0 flex items-start gap-2 text-sm leading-[1.4] text-[#a3201b]">
       <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" className="mt-0.5 shrink-0">
         <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeWidth="1.5" />
         <path d="M8 4.5v4.2M8 11v.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -436,14 +499,14 @@ function InlineError({ id, message }: { id: string; message?: string }) {
 function FormError({ message }: { message?: string }) {
   if (!message) return null;
   return (
-    <p role="alert" className="m-0 rounded-[10px] bg-[#fdecec] px-3.5 py-3 text-sm leading-[1.45] text-[#a3201b]">
+    <p role="alert" className="pl-rise m-0 rounded-[10px] bg-[#fdecec] px-3.5 py-3 text-sm leading-[1.45] text-[#a3201b]">
       {message}
     </p>
   );
 }
 
 function CapsLockHint() {
-  return <p className="m-0 text-[13px] font-medium text-[#8a5a00]">Feststelltaste ist aktiv.</p>;
+  return <p className="pl-rise m-0 text-[13px] font-medium text-[#8a5a00]">Feststelltaste ist aktiv.</p>;
 }
 
 function PrimaryButton({ loading, label, loadingLabel }: { loading: boolean; label: string; loadingLabel: string }) {
@@ -451,10 +514,10 @@ function PrimaryButton({ loading, label, loadingLabel }: { loading: boolean; lab
     <button
       type="submit"
       aria-busy={loading}
-      className="mt-1.5 flex h-[50px] items-center justify-center gap-2.5 rounded-[10px] bg-[#2f5bea] text-base font-bold text-white hover:bg-[#2650d6] focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[#2f5bea] aria-busy:opacity-80"
+      className="pl-press mt-1.5 flex h-[50px] items-center justify-center gap-2.5 rounded-[10px] bg-[#2f5bea] text-base font-bold text-white hover:bg-[#2650d6] focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[#2f5bea] aria-busy:bg-[#4a70ee]"
     >
       {loading && (
-        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" className="animate-spin motion-reduce:animate-none">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" className="pl-spin">
           <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeOpacity=".3" strokeWidth="3" />
           <path d="M21 12a9 9 0 0 0-9-9" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
         </svg>
@@ -464,9 +527,22 @@ function PrimaryButton({ loading, label, loadingLabel }: { loading: boolean; lab
   );
 }
 
-function Message({ title, text, action, onAction }: { title: string; text: string; action: string; onAction: () => void }) {
+function Message({ icon, title, text, action, onAction }: { icon: "check" | "mail"; title: string; text: string; action: string; onAction: () => void }) {
   return (
     <>
+      {icon === "check" ? (
+        <svg aria-hidden="true" width="56" height="56" viewBox="0 0 56 56" className="mb-6">
+          <circle cx="28" cy="28" r="25" fill="none" stroke="#13795b" strokeWidth="3" className="pl-draw" style={{ "--pl-len": 158, transform: "rotate(-90deg)", transformOrigin: "center" } as CSSProperties} />
+          <path d="M17 29l7.5 7.5L39 21" fill="none" stroke="#13795b" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" className="pl-draw" style={{ "--pl-len": 34, "--pl-delay": ".3s" } as CSSProperties} />
+        </svg>
+      ) : (
+        <span className="pl-pop mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-[#2f5bea]/10" style={{ animationDelay: ".08s" }}>
+          <svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#2f5bea" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="5" width="18" height="14" rx="2.5" />
+            <path d="M3.5 7l8.5 6 8.5-6" />
+          </svg>
+        </span>
+      )}
       <h1 className={titleCls}>{title}</h1>
       <p className={leadCls}>{text}</p>
       <button type="button" onClick={onAction} className={`${ghostCls} mt-8`}>
@@ -478,9 +554,11 @@ function Message({ title, text, action, onAction }: { title: string; text: strin
 
 function CheckIcon({ on }: { on: boolean }) {
   return (
-    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16">
+    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" className={on ? "pl-pop" : undefined}>
       <circle cx="8" cy="8" r="7" fill={on ? "#13795b" : "none"} stroke={on ? "#13795b" : "#9aa3b2"} strokeWidth="1.5" />
-      {on && <path d="M5 8.2l2 2 4-4.4" fill="none" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />}
+      {on && (
+        <path d="M5 8.2l2 2 4-4.4" fill="none" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="pl-draw" style={{ "--pl-len": 11, "--pl-delay": ".1s" } as CSSProperties} />
+      )}
     </svg>
   );
 }
