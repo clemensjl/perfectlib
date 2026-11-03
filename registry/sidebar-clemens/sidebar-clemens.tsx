@@ -345,7 +345,7 @@ export default function SidebarClemens({
 
         {/* Suche: eingeklappt ist nur das Lupen-Feld sichtbar, die Lupe bleibt an ihrer Stelle */}
         <div className="px-3 pt-2 pb-1">
-          <label className="relative flex h-10 items-center">
+          <label className="relative flex h-10 items-center transition-[width] duration-[260ms] ease-[cubic-bezier(.23,1,.32,1)] motion-reduce:transition-none" style={{ width: isRail ? 40 : WIDE - 24 }}>
             <span className="sr-only">Navigation durchsuchen</span>
             <span className="pointer-events-none absolute left-3 text-[var(--pl-muted)]">
               <SearchIcon />
