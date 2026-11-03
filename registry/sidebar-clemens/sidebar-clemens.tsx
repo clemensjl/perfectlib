@@ -171,9 +171,9 @@ export default function SidebarClemens({
   const suppressGroup = useRef<string | null>(null);
   const keyboardInside = useRef(false);
   // Aktuelle Werte für die Dokument-Listener, ohne sie bei jedem Render neu zu binden.
-  const live = useRef({ wsOpen, query });
+  const live = useRef({ wsOpen, query, flyoutOpen: false });
   useEffect(() => {
-    live.current = { wsOpen, query };
+    live.current = { wsOpen, query, flyoutOpen: !!flyout };
   });
 
   const expanded = pinned || hovered;
@@ -216,7 +216,8 @@ export default function SidebarClemens({
 
   function closeFlyoutSoon(e?: { clientX: number; clientY: number }) {
     window.clearTimeout(flyoutTimer.current);
-    aim.current = e ? { x: e.clientX, y: e.clientY } : null;
+    // Zieldreieck nur, wenn das Flyout schon offen ist; sonst blockiert es grundlos andere Gruppen.
+    aim.current = e && live.current.flyoutOpen ? { x: e.clientX, y: e.clientY } : null;
     flyoutTimer.current = window.setTimeout(() => {
       aim.current = null;
       setFlyout(null);
@@ -325,8 +326,12 @@ export default function SidebarClemens({
   function hoverGroup(item: NavItem) {
     window.clearTimeout(groupTimer.current);
     if (suppressGroup.current === item.id) return;
-    if (aim.current) return; // gerade unterwegs ins Flyout, nichts darunter aufklappen
-    groupTimer.current = window.setTimeout(() => setHoverGroups((g) => new Set(g).add(item.id)), GROUP_DELAY);
+    const tryOpen = () => {
+      // Gerade unterwegs ins Flyout: nichts darunter aufklappen, später nochmal prüfen.
+      if (aim.current) groupTimer.current = window.setTimeout(tryOpen, GROUP_DELAY);
+      else setHoverGroups((g) => new Set(g).add(item.id));
+    };
+    groupTimer.current = window.setTimeout(tryOpen, GROUP_DELAY);
   }
 
   function leaveGroup(item: NavItem) {
