@@ -159,6 +159,8 @@ export default function SidebarClemens({
   const [flyout, setFlyout] = useState<{ item: NavItem; top: number } | null>(null);
   const flyoutRef = useRef<HTMLDivElement>(null);
   const flyoutTimer = useRef<number | undefined>(undefined);
+  // Austrittspunkt beim Verlassen eines Flyout-Menüpunkts, Ecke des Zieldreiecks.
+  const aim = useRef<{ x: number; y: number } | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   const panelRef = useRef<HTMLElement>(null);
@@ -212,10 +214,41 @@ export default function SidebarClemens({
     }, delay);
   }
 
-  function closeFlyoutSoon() {
+  function closeFlyoutSoon(e?: { clientX: number; clientY: number }) {
     window.clearTimeout(flyoutTimer.current);
-    flyoutTimer.current = window.setTimeout(() => setFlyout(null), FLYOUT_CLOSE);
+    aim.current = e ? { x: e.clientX, y: e.clientY } : null;
+    flyoutTimer.current = window.setTimeout(() => {
+      aim.current = null;
+      setFlyout(null);
+    }, FLYOUT_CLOSE);
   }
+
+  // Zieldreieck: Austrittspunkt und linke Kante des Flyouts. Wer sich darin bewegt, ist auf dem Weg ins Flyout.
+  function aimingAtFlyout(x: number, y: number) {
+    const a = aim.current;
+    const box = flyoutRef.current?.getBoundingClientRect();
+    if (!a || !box) return false;
+    const b = { x: box.left, y: box.top - 12 };
+    const c = { x: box.left, y: box.bottom + 12 };
+    const side = (p: { x: number; y: number }, q: { x: number; y: number }) => (q.x - p.x) * (y - p.y) - (q.y - p.y) * (x - p.x);
+    const d1 = side(a, b), d2 = side(b, c), d3 = side(c, a);
+    const neg = d1 < 0 || d2 < 0 || d3 < 0;
+    const pos = d1 > 0 || d2 > 0 || d3 > 0;
+    return !(neg && pos);
+  }
+
+  useEffect(() => {
+    if (!flyout) return;
+    const onMove = (e: PointerEvent) => {
+      if (inFlyout(e.clientX, e.clientY)) return;
+      if (aimingAtFlyout(e.clientX, e.clientY)) {
+        // Auf dem Weg ins Flyout: Frist verlängern, Ecke nachziehen, damit das Dreieck mitwandert.
+        closeFlyoutSoon(e);
+      }
+    };
+    document.addEventListener("pointermove", onMove);
+    return () => document.removeEventListener("pointermove", onMove);
+  }, [flyout]);
 
   function keepOpen() {
     const s = live.current;
@@ -292,6 +325,7 @@ export default function SidebarClemens({
   function hoverGroup(item: NavItem) {
     window.clearTimeout(groupTimer.current);
     if (suppressGroup.current === item.id) return;
+    if (aim.current) return; // gerade unterwegs ins Flyout, nichts darunter aufklappen
     groupTimer.current = window.setTimeout(() => setHoverGroups((g) => new Set(g).add(item.id)), GROUP_DELAY);
   }
 
@@ -438,7 +472,7 @@ export default function SidebarClemens({
                           type="button"
                           onClick={(e) => (flyOpen ? setFlyout(null) : openFlyout(item, e.currentTarget, 0))}
                           onPointerEnter={(e) => openFlyout(item, e.currentTarget, flyout ? 0 : 100)}
-                          onPointerLeave={closeFlyoutSoon}
+                          onPointerLeave={(e) => closeFlyoutSoon(e)}
                           aria-expanded={flyOpen}
                           aria-controls="pl-sb-flyout"
                           className={rowCls(childOn || flyOpen)}
@@ -577,8 +611,11 @@ export default function SidebarClemens({
             id="pl-sb-flyout"
             role="group"
             aria-label={flyout.item.label}
-            onPointerEnter={() => window.clearTimeout(flyoutTimer.current)}
-            onPointerLeave={closeFlyoutSoon}
+            onPointerEnter={() => {
+              window.clearTimeout(flyoutTimer.current);
+              aim.current = null;
+            }}
+            onPointerLeave={() => closeFlyoutSoon()}
             className="pl-sb-fly absolute z-40 w-56 rounded-[var(--pl-radius)] border border-[var(--pl-line)] bg-[var(--pl-surface)] p-1.5 shadow-[0_16px_40px_-12px_rgba(16,24,40,.25)]"
             style={{ left: (expanded ? WIDE : RAIL) + 6, top: flyout.top }}
           >
