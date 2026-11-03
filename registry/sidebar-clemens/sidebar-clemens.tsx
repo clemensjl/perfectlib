@@ -35,7 +35,11 @@ export type NavItem = {
   href?: string;
   badge?: string | number;
   children?: NavItem[];
+  /** Überschreibt für diese Gruppe, wie die Unterpunkte aufgehen. */
+  submenu?: SubmenuMode;
 };
+/** "inline": Pfeil nach unten, Unterpunkte klappen darunter auf. "flyout": Pfeil nach rechts, Unterpunkte öffnen seitlich. */
+export type SubmenuMode = "inline" | "flyout";
 export type NavSection = { id: string; label?: string; items: NavItem[] };
 export type Workspace = { id: string; name: string; tag?: string };
 
@@ -49,6 +53,8 @@ type SidebarProps = {
   onNavigate?: (item: NavItem) => void;
   user?: { name: string; email?: string };
   logo?: ReactNode;
+  /** Standard für alle Gruppen, einzelne Gruppen können per item.submenu abweichen. */
+  submenu?: SubmenuMode;
   /** Schlüssel für den gemerkten Anheft-Zustand im Browser. */
   storageKey?: string;
   children?: ReactNode;
@@ -59,6 +65,7 @@ const WIDE = 264;
 const OPEN_DELAY = 120; // ms, damit die Leiste beim bloßen Vorbeiziehen nicht aufgeht
 const LEAVE_MARGIN = 32; // px Toleranz rechts neben der ausgefahrenen Leiste
 const GROUP_DELAY = 150; // ms, bis eine Gruppe beim Darüberfahren aufklappt
+const FLYOUT_CLOSE = 220; // ms Gnadenfrist, um vom Menüpunkt ins seitliche Menü zu wechseln
 
 // Standardwerte der Theme-Variablen. :where() hat Spezifität 0, deshalb gewinnt jede Definition im Projekt.
 const THEME_DEFAULTS = `
@@ -83,13 +90,15 @@ const MOTION_CSS = `
 .pl-sb-chevron{transition:transform .2s cubic-bezier(.23,1,.32,1),opacity .14s ease-out}
 .pl-sb-drawer{transition:transform .26s cubic-bezier(.32,.72,0,1)}
 .pl-sb-scrim{transition:opacity .2s ease-out}
+.pl-sb-fly{animation:pl-sb-fly .16s cubic-bezier(.23,1,.32,1) both;transform-origin:left top}
+@keyframes pl-sb-fly{from{opacity:0;transform:translateX(-6px) scale(.98)}to{opacity:1;transform:none}}
 .pl-sb-pop{animation:pl-sb-pop .16s cubic-bezier(.23,1,.32,1) both;transform-origin:top center}
 .pl-sb-press{transition:background-color .12s,color .12s,transform .12s cubic-bezier(.23,1,.32,1)}
 .pl-sb-press:active{transform:scale(.98)}
 @keyframes pl-sb-pop{from{opacity:0;transform:scale(.97) translateY(-4px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){
 .pl-sb,.pl-sb-group,.pl-sb-chevron,.pl-sb-drawer{transition-duration:.01s}
-.pl-sb-pop{animation-name:pl-sb-fade}
+.pl-sb-pop,.pl-sb-fly{animation-name:pl-sb-fade}
 .pl-sb-press:active{transform:none}
 @keyframes pl-sb-fade{from{opacity:0}to{opacity:1}}
 }`;
@@ -128,6 +137,7 @@ export default function SidebarClemens({
   onNavigate,
   user = { name: "Clemens", email: "clemens@beispiel.at" },
   logo,
+  submenu = "inline",
   storageKey = "perfectlib:sidebar-pinned",
   children,
 }: SidebarProps) {
@@ -146,6 +156,10 @@ export default function SidebarClemens({
     () => new Set(sections.flatMap((s) => s.items.filter((i) => i.children && containsId(i, current)).map((i) => i.id))),
   );
   const [hoverGroups, setHoverGroups] = useState<Set<string>>(() => new Set());
+  const [flyout, setFlyout] = useState<{ item: NavItem; top: number } | null>(null);
+  const flyoutRef = useRef<HTMLDivElement>(null);
+  const flyoutTimer = useRef<number | undefined>(undefined);
+  const wrapRef = useRef<HTMLDivElement>(null);
 
   const panelRef = useRef<HTMLElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -178,6 +192,29 @@ export default function SidebarClemens({
     setHovered(false);
     setHoverGroups(new Set());
     setWsOpen(false);
+    setFlyout(null);
+  }
+
+  const inFlyout = (x: number, y: number) => {
+    const box = flyoutRef.current?.getBoundingClientRect();
+    return !!box && x >= box.left - 8 && x <= box.right && y >= box.top && y <= box.bottom;
+  };
+
+  function openFlyout(item: NavItem, el: HTMLElement, delay: number) {
+    window.clearTimeout(flyoutTimer.current);
+    flyoutTimer.current = window.setTimeout(() => {
+      const wrap = wrapRef.current?.getBoundingClientRect();
+      const row = el.getBoundingClientRect();
+      if (!wrap) return;
+      const estimated = 52 + (item.children?.length ?? 0) * 38;
+      const top = Math.max(8, Math.min(row.top - wrap.top - 8, window.innerHeight - wrap.top - estimated - 8));
+      setFlyout({ item, top });
+    }, delay);
+  }
+
+  function closeFlyoutSoon() {
+    window.clearTimeout(flyoutTimer.current);
+    flyoutTimer.current = window.setTimeout(() => setFlyout(null), FLYOUT_CLOSE);
   }
 
   function keepOpen() {
@@ -191,13 +228,13 @@ export default function SidebarClemens({
     if (!hovered || pinned) return;
     const onMove = (e: PointerEvent) => {
       const rect = panelRef.current?.getBoundingClientRect();
-      if (rect && e.clientX > rect.right + LEAVE_MARGIN && !keepOpen()) collapseHover();
+      if (rect && e.clientX > rect.right + LEAVE_MARGIN && !inFlyout(e.clientX, e.clientY) && !keepOpen()) collapseHover();
     };
     const onLeaveWindow = (e: PointerEvent) => {
       if (!e.relatedTarget && !keepOpen()) collapseHover();
     };
     const onDownOutside = (e: PointerEvent) => {
-      if (!panelRef.current?.contains(e.target as Node)) collapseHover();
+      if (!panelRef.current?.contains(e.target as Node) && !flyoutRef.current?.contains(e.target as Node)) collapseHover();
     };
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerout", onLeaveWindow);
@@ -219,6 +256,7 @@ export default function SidebarClemens({
       } else if (e.key === "Escape") {
         setMobileOpen(false);
         setWsOpen(false);
+        setFlyout(null);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -244,6 +282,7 @@ export default function SidebarClemens({
   }
 
   function navigate(item: NavItem) {
+    setFlyout(null);
     setOwnActive(item.id);
     onNavigate?.(item);
     setMobileOpen(false);
@@ -389,6 +428,29 @@ export default function SidebarClemens({
               <ul className="flex flex-col gap-0.5">
                 {section.items.map((item) => {
                   const isGroup = !!item.children?.length;
+                  const mode: SubmenuMode = drawer ? "inline" : (item.submenu ?? submenu);
+                  if (isGroup && mode === "flyout") {
+                    const flyOpen = flyout?.item.id === item.id;
+                    const childOn = containsId(item, current);
+                    return (
+                      <li key={item.id}>
+                        <button
+                          type="button"
+                          onClick={(e) => (flyOpen ? setFlyout(null) : openFlyout(item, e.currentTarget, 0))}
+                          onPointerEnter={(e) => openFlyout(item, e.currentTarget, flyout ? 0 : 100)}
+                          onPointerLeave={closeFlyoutSoon}
+                          aria-expanded={flyOpen}
+                          aria-controls="pl-sb-flyout"
+                          className={rowCls(childOn || flyOpen)}
+                        >
+                          <RowInner item={item} fade={fade} isRail={isRail} accent={childOn} />
+                          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" className={`pl-sb-chevron ${item.badge !== undefined ? "ml-1" : "ml-auto"} mr-1 shrink-0 text-[var(--pl-muted)] ${isRail ? "opacity-0" : ""}`}>
+                            <path d="M6 3.5L10.5 8 6 12.5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                      </li>
+                    );
+                  }
                   const open = !isRail && (searching || openGroups.has(item.id) || hoverGroups.has(item.id));
                   const childActive = isGroup && containsId(item, current);
                   return (
@@ -405,8 +467,8 @@ export default function SidebarClemens({
                             className={rowCls(childActive && isRail)}
                           >
                             <RowInner item={item} fade={fade} isRail={isRail} accent={childActive && isRail} />
-                            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" className={`pl-sb-chevron ${item.badge !== undefined ? "ml-1" : "ml-auto"} mr-1 shrink-0 text-[var(--pl-muted)] ${open ? "rotate-90" : ""} ${isRail ? "opacity-0" : ""}`}>
-                              <path d="M6 3.5L10.5 8 6 12.5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" className={`pl-sb-chevron ${item.badge !== undefined ? "ml-1" : "ml-auto"} mr-1 shrink-0 text-[var(--pl-muted)] ${open ? "rotate-180" : ""} ${isRail ? "opacity-0" : ""}`}>
+                              <path d="M3.5 6L8 10.5 12.5 6" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
                           </button>
                           <div id={`pl-sb-${item.id}${drawer ? "-m" : ""}`} className="pl-sb-group grid" data-open={open}>
@@ -482,7 +544,7 @@ export default function SidebarClemens({
       <style>{THEME_DEFAULTS + MOTION_CSS}</style>
 
       {/* Desktop: Platzhalter im Layout, die Leiste selbst liegt darüber und wächst als Overlay */}
-      <div className="pl-sb relative hidden shrink-0 md:block" style={{ width: pinned ? WIDE : RAIL }}>
+      <div ref={wrapRef} className="pl-sb relative z-30 hidden shrink-0 md:block" style={{ width: pinned ? WIDE : RAIL }}>
         <aside
           ref={panelRef}
           data-rail={rail}
@@ -509,6 +571,30 @@ export default function SidebarClemens({
         >
           {renderSidebar(rail)}
         </aside>
+        {flyout && (
+          <div
+            ref={flyoutRef}
+            id="pl-sb-flyout"
+            role="group"
+            aria-label={flyout.item.label}
+            onPointerEnter={() => window.clearTimeout(flyoutTimer.current)}
+            onPointerLeave={closeFlyoutSoon}
+            className="pl-sb-fly absolute z-40 w-56 rounded-[var(--pl-radius)] border border-[var(--pl-line)] bg-[var(--pl-surface)] p-1.5 shadow-[0_16px_40px_-12px_rgba(16,24,40,.25)]"
+            style={{ left: (expanded ? WIDE : RAIL) + 6, top: flyout.top }}
+          >
+            <p className="px-2.5 pt-1.5 pb-1 text-xs font-medium text-[var(--pl-muted)]">{flyout.item.label}</p>
+            <ul className="flex flex-col gap-0.5">
+              {flyout.item.children!.map((child) => (
+                <li key={child.id}>
+                  <NavLink item={child} active={child.id === current} onNavigate={navigate} className={rowCls(child.id === current, true)}>
+                    <span className="truncate">{child.label}</span>
+                    {child.badge !== undefined && <span className="ml-auto"><Badge value={child.badge} /></span>}
+                  </NavLink>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* Handy: Schublade */}
@@ -626,8 +712,8 @@ function DemoPage({ workspace, parent, label }: { workspace?: string; parent?: s
       <p className="text-sm text-[var(--pl-muted)]">{[workspace, parent].filter(Boolean).join(" / ")}</p>
       <h1 className="mt-1 text-3xl font-bold tracking-[-0.02em]">{label}</h1>
       <p className="mt-3 max-w-prose text-[var(--pl-muted)]">
-        Fahr mit der Maus über die Leiste links, sie klappt aus. Über „Domains“ oder „Sicherheit“ öffnen sich die
-        Unterpunkte. Strg K springt in die Suche.
+        Fahr mit der Maus über die Leiste links, sie klappt aus. „Domains“ öffnet seitlich (Pfeil nach rechts),
+        „Sicherheit“ klappt nach unten auf (Pfeil nach unten). Strg K springt in die Suche.
       </p>
     </div>
   );
@@ -674,6 +760,7 @@ const DEMO_SECTIONS: NavSection[] = [
         id: "domains",
         label: "Domains",
         icon: ICONS.globe,
+        submenu: "flyout",
         children: [
           { id: "domains-all", label: "Alle Domains" },
           { id: "dns", label: "DNS-Einträge" },
