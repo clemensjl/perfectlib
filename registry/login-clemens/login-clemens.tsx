@@ -1,10 +1,37 @@
 "use client";
 
+/**
+ * PERFECTLIB: login-clemens (Login & Registrieren, von Clemens)
+ * Quelle: https://perfectlib.vercel.app/e/login-clemens
+ *
+ * Dieses Element ist White Label. Beim Einbau in ein Projekt gilt:
+ *
+ * ANPASSEN (an die Design-Guidelines des Projekts):
+ * - Die Theme-Variablen --pl-* (Liste unten in THEME_DEFAULTS). Am besten im globalen CSS
+ *   des Projekts auf die vorhandenen Design-Tokens mappen, z. B.
+ *   :root { --pl-accent: var(--color-primary); --pl-radius: var(--radius-md); --pl-font: var(--font-sans); }
+ * - Props: productName, tagline, logo, brandPanel, privacyHref, termsHref.
+ * - Texte dürfen in die Tonalität und Sprache des Projekts übersetzt werden.
+ * - Die Handler (checkEmail, onLogin, onRegister, onMagicLink, onGoogle, onApple) an das echte Auth-Backend hängen.
+ *
+ * NICHT ÄNDERN (das ist der Kern des Elements):
+ * - Ablauf: E-Mail zuerst, dann automatisch Passwort- oder Registrieren-Schritt.
+ * - Validierung: Fehler pro Feld erst beim Verlassen, danach live; Tippfehler-Vorschlag; E-Mail-Bereinigung.
+ * - Bedienung: Klickflächen ab 44 px, verstecktes username-Feld, Feststelltasten-Hinweis, gemerkte E-Mail.
+ * - Animationen und ihr Verhalten bei prefers-reduced-motion (MOTION_CSS, SHAKE).
+ * - Layout-Struktur (Formular links, Markenfläche rechts, auf dem Handy nur das Formular).
+ * Wer davon abweichen will, fragt zuerst den Menschen.
+ */
+
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 
 type LoginProps = {
   productName?: string;
   tagline?: string;
+  /** Ersetzt den Produktnamen oben links, z. B. durch ein Logo. */
+  logo?: ReactNode;
+  /** Ersetzt den Inhalt der Markenfläche rechts (Bild, Zitat, Illustration). */
+  brandPanel?: ReactNode;
   /** Entscheidet nach der E-Mail, ob der Passwort- oder der Registrieren-Schritt kommt. */
   checkEmail?: (email: string) => Promise<"existing" | "new">;
   /** Die Handler werfen einen Error mit lesbarer Meldung, wenn etwas scheitert. */
@@ -43,6 +70,26 @@ const suggestFor = (v: string) => {
 };
 const messageOf = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
 
+// Standardwerte der Theme-Variablen. :where() hat Spezifität 0, deshalb gewinnt jede Definition
+// im Projekt (auf :root oder einem Wrapper) automatisch.
+const THEME_DEFAULTS = `
+:where(:root){
+--pl-accent:#2f5bea;
+--pl-accent-hover:#1d44c4;
+--pl-on-accent:#ffffff;
+--pl-ink:#15171c;
+--pl-muted:#5d6573;
+--pl-line:#d5dae1;
+--pl-subtle:#eef1f4;
+--pl-surface:#ffffff;
+--pl-danger:#b42620;
+--pl-danger-bg:#fdecec;
+--pl-success:#13795b;
+--pl-warning:#8a5a00;
+--pl-radius:10px;
+--pl-font:inherit;
+}`;
+
 // Alle Animationen laufen über transform/opacity. Bei "weniger Bewegung" bleibt nur Einblenden,
 // der Lade-Spinner dreht sich trotzdem, weil er Fortschritt anzeigt.
 const MOTION_CSS = `
@@ -80,18 +127,20 @@ const SHAKE: Keyframe[] = [
 ];
 
 const inputCls =
-  "pl-field h-12 w-full rounded-[10px] border bg-white px-3.5 text-base text-[#15171c] outline-none focus:border-[#2f5bea] focus:ring-[3px] focus:ring-[#2f5bea]/20";
+  "pl-field h-12 w-full rounded-[var(--pl-radius)] border bg-[var(--pl-surface)] px-3.5 text-base text-[var(--pl-ink)] outline-none focus:border-[var(--pl-accent)] focus:ring-[3px] focus:ring-[var(--pl-accent)]/20";
 const ghostCls =
-  "pl-press flex h-12 items-center justify-center gap-2.5 rounded-[10px] border border-[#d5dae1] bg-white px-5 text-[15px] font-semibold text-[#15171c] hover:bg-[#eef1f4] focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[#2f5bea]";
+  "pl-press flex h-12 items-center justify-center gap-2.5 rounded-[var(--pl-radius)] border border-[var(--pl-line)] bg-[var(--pl-surface)] px-5 text-[15px] font-semibold text-[var(--pl-ink)] hover:bg-[var(--pl-subtle)] focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[var(--pl-accent)]";
 // Textlinks bleiben optisch klein, die Klickfläche ist aber mindestens 44 px hoch.
 const textBtnCls =
-  "-mx-2 inline-flex min-h-11 items-center rounded-md px-2 text-sm font-medium text-[#2f5bea] transition-colors duration-150 hover:text-[#1d44c4] focus-visible:outline-2 focus-visible:outline-[#2f5bea]";
+  "-mx-2 inline-flex min-h-11 items-center rounded-md px-2 text-sm font-medium text-[var(--pl-accent)] transition-colors duration-150 hover:text-[var(--pl-accent-hover)] focus-visible:outline-2 focus-visible:outline-[var(--pl-accent)]";
 const titleCls = "m-0 text-[40px] leading-[1.05] font-extrabold tracking-[-0.03em]";
-const leadCls = "mt-3 text-base leading-normal text-[#5d6573]";
+const leadCls = "mt-3 text-base leading-normal text-[var(--pl-muted)]";
 
 export default function LoginClemens({
   productName = "PerfectLib",
   tagline = "Ein Login, der einfach funktioniert.",
+  logo,
+  brandPanel,
   checkEmail = async (email) => {
     await wait(500);
     return demoAccounts.has(email) ? "existing" : "new";
@@ -252,10 +301,10 @@ export default function LoginClemens({
     setCapsLock(e.getModifierState("CapsLock"));
   }
 
-  const border = (key: keyof Errors) => (errors[key] ? "border-[#c4302b]" : "border-[#d5dae1]");
+  const border = (key: keyof Errors) => (errors[key] ? "border-[var(--pl-danger)]" : "border-[var(--pl-line)]");
 
   const emailChip = (
-    <div className="mb-6 flex items-center justify-between gap-3 rounded-[10px] bg-[#eef1f4] py-1 pr-3 pl-4">
+    <div className="mb-6 flex items-center justify-between gap-3 rounded-[var(--pl-radius)] bg-[var(--pl-subtle)] py-1 pr-3 pl-4">
       <span className="min-w-0 truncate text-[15px] font-medium">{email}</span>
       <button type="button" onClick={() => go("email")} className={textBtnCls}>
         Ändern
@@ -283,7 +332,7 @@ export default function LoginClemens({
         type="button"
         onClick={() => setShowPw(!showPw)}
         aria-label={showPw ? "Passwort verbergen" : "Passwort anzeigen"}
-        className="absolute top-0 right-0 h-12 min-w-[76px] rounded-r-[10px] px-3 text-sm font-semibold text-[#5d6573] hover:text-[#15171c] focus-visible:outline-2 focus-visible:outline-[#2f5bea]"
+        className="absolute top-0 right-0 h-12 min-w-[76px] rounded-r-[var(--pl-radius)] px-3 text-sm font-semibold text-[var(--pl-muted)] hover:text-[var(--pl-ink)] focus-visible:outline-2 focus-visible:outline-[var(--pl-accent)]"
       >
         {showPw ? "Verbergen" : "Zeigen"}
       </button>
@@ -291,10 +340,10 @@ export default function LoginClemens({
   );
 
   return (
-    <div className="flex min-h-screen flex-wrap bg-white text-[#15171c]">
-      <style>{MOTION_CSS}</style>
+    <div className="flex min-h-screen flex-wrap bg-[var(--pl-surface)] font-[family-name:var(--pl-font)] text-[var(--pl-ink)]">
+      <style>{THEME_DEFAULTS + MOTION_CSS}</style>
       <main className="flex min-w-0 flex-[999_1_520px] flex-col justify-between gap-10 px-[clamp(24px,6vw,88px)] py-10">
-        <div className="text-lg font-bold tracking-[-0.01em]">{productName}</div>
+        <div className="text-lg font-bold tracking-[-0.01em]">{logo ?? productName}</div>
 
         <div key={step} ref={formRef} data-dir={dir} className="pl-step w-full max-w-[400px]">
           {step === "email" && (
@@ -329,7 +378,7 @@ export default function LoginClemens({
                     className={`${inputCls} ${border("email")}`}
                   />
                   {suggestion && (
-                    <p className="pl-rise m-0 text-sm text-[#5d6573]">
+                    <p className="pl-rise m-0 text-sm text-[var(--pl-muted)]">
                       Meintest du{" "}
                       <button type="button" onClick={() => { setEmail(suggestion); setSuggestion(""); setError("email", ""); }} className={textBtnCls}>
                         {suggestion}
@@ -343,10 +392,10 @@ export default function LoginClemens({
                 <PrimaryButton loading={loading} label="Weiter" loadingLabel="Einen Moment …" />
               </form>
 
-              <div className="my-7 flex items-center gap-3.5 text-sm text-[#5d6573]">
-                <span className="h-px flex-1 bg-[#d5dae1]" />
+              <div className="my-7 flex items-center gap-3.5 text-sm text-[var(--pl-muted)]">
+                <span className="h-px flex-1 bg-[var(--pl-line)]" />
                 <span>oder weiter mit</span>
-                <span className="h-px flex-1 bg-[#d5dae1]" />
+                <span className="h-px flex-1 bg-[var(--pl-line)]" />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -375,7 +424,7 @@ export default function LoginClemens({
                 <FormError message={errors.form} />
                 <PrimaryButton loading={loading} label="Anmelden" loadingLabel="Wird angemeldet …" />
               </form>
-              <p className="mt-5 mb-0 text-sm text-[#5d6573]">
+              <p className="mt-5 mb-0 text-sm text-[var(--pl-muted)]">
                 Passwort vergessen?{" "}
                 <button type="button" onClick={sendLink} className={textBtnCls}>
                   Anmeldelink per Mail schicken
@@ -409,25 +458,25 @@ export default function LoginClemens({
                 <Field id="pl-pw" label="Passwort" error={errors.pw}>
                   {passwordField("new-password", "pl-pw-rule")}
                   {capsLock && <CapsLockHint />}
-                  <p id="pl-pw-rule" className={`m-0 flex items-center gap-2 text-[13px] transition-colors duration-200 ${pwOk ? "text-[#13795b]" : "text-[#5d6573]"}`}>
+                  <p id="pl-pw-rule" className={`m-0 flex items-center gap-2 text-[13px] transition-colors duration-200 ${pwOk ? "text-[var(--pl-success)]" : "text-[var(--pl-muted)]"}`}>
                     <CheckIcon key={String(pwOk)} on={pwOk} />
                     Mindestens {MIN_PW} Zeichen
                   </p>
                 </Field>
 
                 <div className="flex flex-col gap-1.5">
-                  <label className="flex cursor-pointer items-start gap-3 py-1 text-sm leading-[1.45] text-[#5d6573]">
+                  <label className="flex cursor-pointer items-start gap-3 py-1 text-sm leading-[1.45] text-[var(--pl-muted)]">
                     <input
                       type="checkbox"
                       checked={terms}
                       onChange={(e) => { setTerms(e.target.checked); recheck("terms", e.target.checked); }}
                       aria-invalid={!!errors.terms}
                       aria-describedby={errors.terms ? "pl-terms-err" : undefined}
-                      className="mt-px h-5 w-5 shrink-0 accent-[#2f5bea]"
+                      className="mt-px h-5 w-5 shrink-0 accent-[var(--pl-accent)]"
                     />
                     <span>
-                      Ich habe die <a href={privacyHref} className="text-[#2f5bea] hover:text-[#1d44c4]">Datenschutzerklärung</a>{" "}
-                      gelesen und stimme den <a href={termsHref} className="text-[#2f5bea] hover:text-[#1d44c4]">Nutzungsbedingungen</a> zu.
+                      Ich habe die <a href={privacyHref} className="text-[var(--pl-accent)] hover:text-[var(--pl-accent-hover)]">Datenschutzerklärung</a>{" "}
+                      gelesen und stimme den <a href={termsHref} className="text-[var(--pl-accent)] hover:text-[var(--pl-accent-hover)]">Nutzungsbedingungen</a> zu.
                     </span>
                   </label>
                   <InlineError id="pl-terms-err" message={errors.terms} />
@@ -467,9 +516,13 @@ export default function LoginClemens({
         <span aria-hidden />
       </main>
 
-      <aside className="hidden min-h-screen flex-[1_1_380px] flex-col justify-end bg-[#2f5bea] p-14 text-white min-[861px]:flex">
-        <p className="m-0 max-w-[420px] text-[34px] leading-[1.12] font-bold tracking-[-0.02em]">{tagline}</p>
-        <p className="mt-5 text-[15px] text-white/80">{productName}</p>
+      <aside className="hidden min-h-screen flex-[1_1_380px] flex-col justify-end bg-[var(--pl-accent)] p-14 text-[var(--pl-on-accent)] min-[861px]:flex">
+        {brandPanel ?? (
+          <>
+            <p className="m-0 max-w-[420px] text-[34px] leading-[1.12] font-bold tracking-[-0.02em]">{tagline}</p>
+            <p className="mt-5 text-[15px] text-[var(--pl-on-accent)]/80">{productName}</p>
+          </>
+        )}
       </aside>
     </div>
   );
@@ -488,7 +541,7 @@ function Field({ id, label, error, children }: { id: string; label: string; erro
 function InlineError({ id, message }: { id: string; message?: string }) {
   if (!message) return null;
   return (
-    <p id={id} className="pl-rise m-0 flex items-start gap-2 text-sm leading-[1.4] text-[#a3201b]">
+    <p id={id} className="pl-rise m-0 flex items-start gap-2 text-sm leading-[1.4] text-[var(--pl-danger)]">
       <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" className="mt-0.5 shrink-0">
         <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeWidth="1.5" />
         <path d="M8 4.5v4.2M8 11v.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -501,14 +554,14 @@ function InlineError({ id, message }: { id: string; message?: string }) {
 function FormError({ message }: { message?: string }) {
   if (!message) return null;
   return (
-    <p role="alert" className="pl-rise m-0 rounded-[10px] bg-[#fdecec] px-3.5 py-3 text-sm leading-[1.45] text-[#a3201b]">
+    <p role="alert" className="pl-rise m-0 rounded-[var(--pl-radius)] bg-[var(--pl-danger-bg)] px-3.5 py-3 text-sm leading-[1.45] text-[var(--pl-danger)]">
       {message}
     </p>
   );
 }
 
 function CapsLockHint() {
-  return <p className="pl-rise m-0 text-[13px] font-medium text-[#8a5a00]">Feststelltaste ist aktiv.</p>;
+  return <p className="pl-rise m-0 text-[13px] font-medium text-[var(--pl-warning)]">Feststelltaste ist aktiv.</p>;
 }
 
 function PrimaryButton({ loading, label, loadingLabel }: { loading: boolean; label: string; loadingLabel: string }) {
@@ -516,7 +569,7 @@ function PrimaryButton({ loading, label, loadingLabel }: { loading: boolean; lab
     <button
       type="submit"
       aria-busy={loading}
-      className="pl-press mt-1.5 flex h-[50px] items-center justify-center gap-2.5 rounded-[10px] bg-[#2f5bea] text-base font-bold text-white hover:bg-[#2650d6] focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[#2f5bea] aria-busy:bg-[#4a70ee]"
+      className="pl-press mt-1.5 flex h-[50px] items-center justify-center gap-2.5 rounded-[var(--pl-radius)] bg-[var(--pl-accent)] text-base font-bold text-[var(--pl-on-accent)] hover:bg-[var(--pl-accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[var(--pl-accent)] aria-busy:opacity-85"
     >
       {loading && (
         <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" className="pl-spin">
@@ -533,13 +586,13 @@ function Message({ icon, title, text, action, onAction }: { icon: "check" | "mai
   return (
     <>
       {icon === "check" ? (
-        <svg aria-hidden="true" width="56" height="56" viewBox="0 0 56 56" className="mb-6">
-          <circle cx="28" cy="28" r="25" fill="none" stroke="#13795b" strokeWidth="3" className="pl-draw" style={{ "--pl-len": 158, transform: "rotate(-90deg)", transformOrigin: "center" } as CSSProperties} />
-          <path d="M17 29l7.5 7.5L39 21" fill="none" stroke="#13795b" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" className="pl-draw" style={{ "--pl-len": 34, "--pl-delay": ".3s" } as CSSProperties} />
+        <svg aria-hidden="true" width="56" height="56" viewBox="0 0 56 56" className="mb-6 text-[var(--pl-success)]">
+          <circle cx="28" cy="28" r="25" fill="none" stroke="currentColor" strokeWidth="3" className="pl-draw" style={{ "--pl-len": 158, transform: "rotate(-90deg)", transformOrigin: "center" } as CSSProperties} />
+          <path d="M17 29l7.5 7.5L39 21" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" className="pl-draw" style={{ "--pl-len": 34, "--pl-delay": ".3s" } as CSSProperties} />
         </svg>
       ) : (
-        <span className="pl-pop mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-[#2f5bea]/10" style={{ animationDelay: ".08s" }}>
-          <svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#2f5bea" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <span className="pl-pop mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--pl-accent)]/10 text-[var(--pl-accent)]" style={{ animationDelay: ".08s" }}>
+          <svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="5" width="18" height="14" rx="2.5" />
             <path d="M3.5 7l8.5 6 8.5-6" />
           </svg>
@@ -557,9 +610,9 @@ function Message({ icon, title, text, action, onAction }: { icon: "check" | "mai
 function CheckIcon({ on }: { on: boolean }) {
   return (
     <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" className={on ? "pl-pop" : undefined}>
-      <circle cx="8" cy="8" r="7" fill={on ? "#13795b" : "none"} stroke={on ? "#13795b" : "#9aa3b2"} strokeWidth="1.5" />
+      <circle cx="8" cy="8" r="7" fill={on ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.5" />
       {on && (
-        <path d="M5 8.2l2 2 4-4.4" fill="none" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="pl-draw" style={{ "--pl-len": 11, "--pl-delay": ".1s" } as CSSProperties} />
+        <path d="M5 8.2l2 2 4-4.4" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="pl-draw" style={{ "--pl-len": 11, "--pl-delay": ".1s", stroke: "var(--pl-surface)" } as CSSProperties} />
       )}
     </svg>
   );
@@ -579,7 +632,7 @@ function GoogleIcon() {
 function AppleIcon() {
   return (
     <svg aria-hidden="true" width="17" height="18" viewBox="0 0 17 20">
-      <path fill="#15171c" d="M14.1 10.6c0-2.6 2.1-3.8 2.2-3.9a4.8 4.8 0 0 0-3.8-2c-1.6-.2-3.1.9-3.9.9-.8 0-2-.9-3.4-.9A5 5 0 0 0 1 7.3c-1.8 3.1-.5 7.7 1.3 10.2.8 1.2 1.8 2.6 3.1 2.5 1.3 0 1.7-.8 3.3-.8 1.5 0 1.9.8 3.3.8 1.4 0 2.2-1.2 3-2.5a10 10 0 0 0 1.4-2.8 4.3 4.3 0 0 1-2.3-4.1zM11.6 3a4.4 4.4 0 0 0 1-3.2 4.5 4.5 0 0 0-2.9 1.5 4.2 4.2 0 0 0-1 3.1c1.1.1 2.2-.5 2.9-1.4z" />
+      <path fill="currentColor" d="M14.1 10.6c0-2.6 2.1-3.8 2.2-3.9a4.8 4.8 0 0 0-3.8-2c-1.6-.2-3.1.9-3.9.9-.8 0-2-.9-3.4-.9A5 5 0 0 0 1 7.3c-1.8 3.1-.5 7.7 1.3 10.2.8 1.2 1.8 2.6 3.1 2.5 1.3 0 1.7-.8 3.3-.8 1.5 0 1.9.8 3.3.8 1.4 0 2.2-1.2 3-2.5a10 10 0 0 0 1.4-2.8 4.3 4.3 0 0 1-2.3-4.1zM11.6 3a4.4 4.4 0 0 0 1-3.2 4.5 4.5 0 0 0-2.9 1.5 4.2 4.2 0 0 0-1 3.1c1.1.1 2.2-.5 2.9-1.4z" />
     </svg>
   );
 }

@@ -3,7 +3,7 @@ import path from "node:path";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CopyButton } from "@/components/copy-button";
-import { installCommand, items, makerOf, makers } from "@/lib/registry";
+import { handoffPrompt, installCommand, items, makerOf, makers } from "@/lib/registry";
 
 export const dynamicParams = false;
 
@@ -28,6 +28,10 @@ export default async function ElementPage({ params }: PageProps<"/e/[name]">) {
       ),
     })),
   );
+  const themeVars = files.flatMap((f) =>
+    [...f.source.matchAll(/^(--pl-[a-z-]+):([^;]+);$/gm)].map((m) => ({ name: m[1], value: m[2] })),
+  );
+  const prompt = handoffPrompt(item.title, command);
 
   return (
     <article>
@@ -76,6 +80,41 @@ export default async function ElementPage({ params }: PageProps<"/e/[name]">) {
           </code>
           <CopyButton text={command} />
         </div>
+      </section>
+
+      <section aria-labelledby="adapt" className="mt-14">
+        <h2 id="adapt" className="text-xl font-semibold tracking-tight">
+          An dein Design anpassen
+        </h2>
+        <p className="mt-2 max-w-prose text-muted">
+          Das Element ist White Label. Farben, Radius und Schrift kommen aus Variablen, der Ablauf bleibt
+          gleich. Gib Claude im Zielprojekt diesen Auftrag:
+        </p>
+        <div className="mt-3 flex items-start gap-3 rounded-xl border border-line bg-stage p-4">
+          <p className="m-0 min-w-0 flex-1 whitespace-pre-line">{prompt}</p>
+          <CopyButton text={prompt} />
+        </div>
+        {themeVars.length > 0 && (
+          <div className="mt-4 overflow-x-auto rounded-xl border border-line bg-stage">
+            <table className="w-full text-left text-sm">
+              <caption className="sr-only">Theme-Variablen und Standardwerte</caption>
+              <thead className="text-muted">
+                <tr>
+                  <th scope="col" className="px-4 py-2 font-medium">Variable</th>
+                  <th scope="col" className="px-4 py-2 font-medium">Standard</th>
+                </tr>
+              </thead>
+              <tbody>
+                {themeVars.map((v) => (
+                  <tr key={v.name} className="border-t border-line">
+                    <td className="px-4 py-2 font-mono">{v.name}</td>
+                    <td className="px-4 py-2 font-mono">{v.value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <section aria-labelledby="code" className="mt-14">
