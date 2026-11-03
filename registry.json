@@ -2,5 +2,20 @@
   "$schema": "https://ui.shadcn.com/schema/registry.json",
   "name": "perfectlib",
   "homepage": "https://perfectlib.vercel.app",
-  "items": []
+  "items": [
+    {
+      "name": "login-clemens",
+      "type": "registry:block",
+      "title": "Login-Screen",
+      "description": "E-Mail und Passwort, Anmeldelink per Mail, Google und Apple. Mit Fehler-, Lade- und Erfolgszustand.",
+      "author": "Clemens",
+      "categories": ["auth"],
+      "files": [
+        {
+          "path": "registry/login-clemens/login-clemens.tsx",
+          "type": "registry:component"
+        }
+      ]
+    }
+  ]
 }
