@@ -44,3 +44,4 @@ public/r/
 
 .vercel
 .env*
+.playwright-mcp/
