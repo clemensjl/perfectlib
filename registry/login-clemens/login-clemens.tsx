@@ -367,6 +367,7 @@ export default function LoginClemens({
               {emailChip}
               <h1 className={titleCls}>Passwort eingeben</h1>
               <form onSubmit={submitPassword} noValidate className="mt-8 flex flex-col gap-[18px]">
+                <input type="email" name="username" autoComplete="username" value={email} readOnly hidden />
                 <Field id="pl-pw" label="Passwort" error={errors.pw}>
                   {passwordField("current-password")}
                   {capsLock && <CapsLockHint />}
@@ -389,6 +390,7 @@ export default function LoginClemens({
               <h1 className={titleCls}>Konto erstellen</h1>
               <p className={leadCls}>Für diese Adresse gibt es noch kein Konto. Zwei Angaben, dann bist du drin.</p>
               <form onSubmit={submitRegister} noValidate className="mt-8 flex flex-col gap-[18px]">
+                <input type="email" name="username" autoComplete="username" value={email} readOnly hidden />
                 <Field id="pl-name" label="Name" error={errors.name}>
                   <input
                     id="pl-name"
