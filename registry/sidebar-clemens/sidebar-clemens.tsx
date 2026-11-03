@@ -15,11 +15,14 @@
  * - Den Seiteninhalt als children übergeben.
  *
  * NICHT ÄNDERN (das ist der Kern des Elements):
- * - Aufbau: Workspace-Umschalter, Suche, Abschnitte mit Gruppen, Fußbereich mit Benutzer.
+ * - Desktop: standardmäßig eingeklappt (nur Icons, Logo, Profilbild). Fährt beim Darüberfahren nach
+ *   OPEN_DELAY als Overlay aus und erst wieder ein, wenn der Zeiger LEAVE_MARGIN px rechts daneben ist.
+ *   Gruppen klappen beim Darüberfahren nach GROUP_DELAY auf. "Anheften" hält die Leiste offen.
+ * - Icons stehen eingeklappt und ausgefahren an derselben Stelle, nichts springt.
  * - Suche: filtert live, klappt Gruppen mit Treffern auf, Enter öffnet den ersten Treffer, Strg/Cmd+K fokussiert.
- * - Einklappen auf Icon-Leiste mit Tooltips, Zustand wird gemerkt; auf dem Handy Schublade mit Escape.
+ * - Handy: Schublade mit Escape und Tipp daneben.
  * - Animationen und ihr Verhalten bei prefers-reduced-motion (MOTION_CSS).
- * - Barrierefreiheit: aria-current, aria-expanded, sichtbare Namen auch im eingeklappten Zustand.
+ * - Barrierefreiheit: aria-current, aria-expanded, Tastatur-Fokus fährt die Leiste aus.
  * Wer davon abweichen will, fragt zuerst den Menschen.
  */
 
@@ -46,10 +49,16 @@ type SidebarProps = {
   onNavigate?: (item: NavItem) => void;
   user?: { name: string; email?: string };
   logo?: ReactNode;
-  /** Schlüssel für den gemerkten Einklapp-Zustand im Browser. */
+  /** Schlüssel für den gemerkten Anheft-Zustand im Browser. */
   storageKey?: string;
   children?: ReactNode;
 };
+
+const RAIL = 64;
+const WIDE = 264;
+const OPEN_DELAY = 120; // ms, damit die Leiste beim bloßen Vorbeiziehen nicht aufgeht
+const LEAVE_MARGIN = 32; // px Toleranz rechts neben der ausgefahrenen Leiste
+const GROUP_DELAY = 150; // ms, bis eine Gruppe beim Darüberfahren aufklappt
 
 // Standardwerte der Theme-Variablen. :where() hat Spezifität 0, deshalb gewinnt jede Definition im Projekt.
 const THEME_DEFAULTS = `
@@ -66,13 +75,12 @@ const THEME_DEFAULTS = `
 }`;
 
 const MOTION_CSS = `
-.pl-sb{transition:width .24s cubic-bezier(.23,1,.32,1)}
-.pl-sb-label{transition:opacity .16s ease-out}
+.pl-sb{transition:width .26s cubic-bezier(.23,1,.32,1),box-shadow .2s ease-out}
+.pl-sb-fade{transition:opacity .14s ease-out}
+.pl-sb[data-rail=false] .pl-sb-fade{transition:opacity .2s ease-out .06s}
 .pl-sb-group{grid-template-rows:0fr;transition:grid-template-rows .22s cubic-bezier(.23,1,.32,1)}
 .pl-sb-group[data-open=true]{grid-template-rows:1fr}
-.pl-sb-chevron{transition:transform .2s cubic-bezier(.23,1,.32,1)}
-.pl-sb-tip{opacity:0;transform:translateX(-4px);transition:opacity .12s ease-out,transform .12s ease-out;pointer-events:none}
-.pl-sb-tipwrap:hover .pl-sb-tip,.pl-sb-tipwrap:focus-visible .pl-sb-tip{opacity:1;transform:none;transition-delay:.15s}
+.pl-sb-chevron{transition:transform .2s cubic-bezier(.23,1,.32,1),opacity .14s ease-out}
 .pl-sb-drawer{transition:transform .26s cubic-bezier(.32,.72,0,1)}
 .pl-sb-scrim{transition:opacity .2s ease-out}
 .pl-sb-pop{animation:pl-sb-pop .16s cubic-bezier(.23,1,.32,1) both;transform-origin:top center}
@@ -81,7 +89,6 @@ const MOTION_CSS = `
 @keyframes pl-sb-pop{from{opacity:0;transform:scale(.97) translateY(-4px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){
 .pl-sb,.pl-sb-group,.pl-sb-chevron,.pl-sb-drawer{transition-duration:.01s}
-.pl-sb-tip{transform:none}
 .pl-sb-pop{animation-name:pl-sb-fade}
 .pl-sb-press:active{transform:none}
 @keyframes pl-sb-fade{from{opacity:0}to{opacity:1}}
@@ -121,10 +128,11 @@ export default function SidebarClemens({
   onNavigate,
   user = { name: "Clemens", email: "clemens@beispiel.at" },
   logo,
-  storageKey = "perfectlib:sidebar-collapsed",
+  storageKey = "perfectlib:sidebar-pinned",
   children,
 }: SidebarProps) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [wsOpen, setWsOpen] = useState(false);
@@ -137,9 +145,23 @@ export default function SidebarClemens({
   const [openGroups, setOpenGroups] = useState<Set<string>>(
     () => new Set(sections.flatMap((s) => s.items.filter((i) => i.children && containsId(i, current)).map((i) => i.id))),
   );
+  const [hoverGroups, setHoverGroups] = useState<Set<string>>(() => new Set());
 
+  const panelRef = useRef<HTMLElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const wsRef = useRef<HTMLDivElement>(null);
+  const openTimer = useRef<number | undefined>(undefined);
+  const groupTimer = useRef<number | undefined>(undefined);
+  const suppressGroup = useRef<string | null>(null);
+  const keyboardInside = useRef(false);
+  // Aktuelle Werte für die Dokument-Listener, ohne sie bei jedem Render neu zu binden.
+  const live = useRef({ wsOpen, query });
+  useEffect(() => {
+    live.current = { wsOpen, query };
+  });
+
+  const expanded = pinned || hovered;
+  const rail = !expanded;
   const visible = useMemo(() => filterSections(sections, query), [sections, query]);
   const searching = query.trim().length > 0;
 
@@ -147,15 +169,51 @@ export default function SidebarClemens({
     try {
       // Gemerkten Zustand erst nach dem Hydrieren übernehmen, damit Server- und Client-HTML gleich bleiben.
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (localStorage.getItem(storageKey) === "1") setCollapsed(true);
+      if (localStorage.getItem(storageKey) === "1") setPinned(true);
     } catch {}
   }, [storageKey]);
+
+  function collapseHover() {
+    window.clearTimeout(openTimer.current);
+    setHovered(false);
+    setHoverGroups(new Set());
+    setWsOpen(false);
+  }
+
+  function keepOpen() {
+    const s = live.current;
+    return s.wsOpen || !!s.query.trim() || keyboardInside.current || document.activeElement === searchRef.current;
+  }
+
+  // Einfahren erst mit Abstand: Zeiger mehr als LEAVE_MARGIN px rechts neben der Leiste, Fenster verlassen
+  // oder Tipp/Klick außerhalb.
+  useEffect(() => {
+    if (!hovered || pinned) return;
+    const onMove = (e: PointerEvent) => {
+      const rect = panelRef.current?.getBoundingClientRect();
+      if (rect && e.clientX > rect.right + LEAVE_MARGIN && !keepOpen()) collapseHover();
+    };
+    const onLeaveWindow = (e: PointerEvent) => {
+      if (!e.relatedTarget && !keepOpen()) collapseHover();
+    };
+    const onDownOutside = (e: PointerEvent) => {
+      if (!panelRef.current?.contains(e.target as Node)) collapseHover();
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerout", onLeaveWindow);
+    document.addEventListener("pointerdown", onDownOutside);
+    return () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerout", onLeaveWindow);
+      document.removeEventListener("pointerdown", onDownOutside);
+    };
+  }, [hovered, pinned]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setCollapsed(false);
+        setHovered(true);
         setMobileOpen(true);
         requestAnimationFrame(() => searchRef.current?.focus());
       } else if (e.key === "Escape") {
@@ -176,10 +234,10 @@ export default function SidebarClemens({
     return () => document.removeEventListener("pointerdown", close);
   }, [wsOpen]);
 
-  function toggleCollapsed() {
-    const next = !collapsed;
-    setCollapsed(next);
-    setWsOpen(false);
+  function togglePinned() {
+    const next = !pinned;
+    setPinned(next);
+    if (!next) setHovered(true); // Zeiger ist noch auf der Leiste, sie bleibt bis zum Verlassen offen
     try {
       localStorage.setItem(storageKey, next ? "1" : "0");
     } catch {}
@@ -192,18 +250,32 @@ export default function SidebarClemens({
     setQuery("");
   }
 
-  function toggleGroup(item: NavItem) {
-    if (collapsed) {
-      setCollapsed(false);
+  function hoverGroup(item: NavItem) {
+    window.clearTimeout(groupTimer.current);
+    if (suppressGroup.current === item.id) return;
+    groupTimer.current = window.setTimeout(() => setHoverGroups((g) => new Set(g).add(item.id)), GROUP_DELAY);
+  }
+
+  function leaveGroup(item: NavItem) {
+    window.clearTimeout(groupTimer.current);
+    if (suppressGroup.current === item.id) suppressGroup.current = null;
+  }
+
+  function toggleGroup(item: NavItem, isOpen: boolean) {
+    window.clearTimeout(groupTimer.current);
+    if (rail) {
+      setHovered(true);
       setOpenGroups((g) => new Set(g).add(item.id));
       return;
     }
-    setOpenGroups((g) => {
-      const n = new Set(g);
-      if (n.has(item.id)) n.delete(item.id);
-      else n.add(item.id);
-      return n;
-    });
+    if (isOpen) {
+      // Per Klick geschlossen: bis der Zeiger die Gruppe verlässt, nicht wieder per Hover öffnen.
+      suppressGroup.current = item.id;
+      setOpenGroups((g) => { const n = new Set(g); n.delete(item.id); return n; });
+      setHoverGroups((g) => { const n = new Set(g); n.delete(item.id); return n; });
+    } else {
+      setOpenGroups((g) => new Set(g).add(item.id));
+    }
   }
 
   function pickWorkspace(id: string) {
@@ -214,221 +286,230 @@ export default function SidebarClemens({
 
   const activeItem = sections.flatMap((s) => s.items.flatMap((i) => [i, ...(i.children ?? [])])).find((i) => i.id === current);
   const activeParent = sections.flatMap((s) => s.items).find((i) => i.children?.some((c) => c.id === current));
-  const rail = collapsed; // nur auf dem Desktop wirksam, die Schublade ist immer breit
-  const labelCls = `pl-sb-label truncate ${rail ? "md:sr-only" : ""}`;
 
-  const sidebar = (
-    <div className="flex h-full flex-col">
-      {/* Workspace */}
-      <div ref={wsRef} className="relative px-3 pt-3">
-        <button
-          type="button"
-          onClick={() => setWsOpen(!wsOpen)}
-          aria-haspopup="listbox"
-          aria-expanded={wsOpen}
-          className={`pl-sb-press pl-sb-tipwrap relative flex h-12 w-full items-center gap-3 rounded-[var(--pl-radius)] px-2 text-left hover:bg-[var(--pl-subtle)] focus-visible:outline-2 focus-visible:outline-[var(--pl-accent)] ${rail ? "md:justify-center md:px-0" : ""}`}
-        >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[calc(var(--pl-radius)-2px)] bg-[var(--pl-accent)] text-sm font-bold text-[var(--pl-surface)]">
-            {logo ?? ws?.name.charAt(0)}
-          </span>
-          <span className={`min-w-0 flex-1 ${rail ? "md:sr-only" : ""}`}>
-            <span className="block truncate text-sm font-semibold">{ws?.name}</span>
-            {ws?.tag && <span className="block truncate text-xs text-[var(--pl-muted)]">{ws.tag}</span>}
-          </span>
-          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" className={`shrink-0 text-[var(--pl-muted)] ${rail ? "md:hidden" : ""}`}>
-            <path d="M5 6l3-3 3 3M5 10l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          {rail && <Tip label={ws?.name ?? ""} />}
-        </button>
-
-        {wsOpen && (
-          <div
-            role="listbox"
-            aria-label="Workspace wählen"
-            className={`pl-sb-pop absolute top-full z-30 mt-1 rounded-[var(--pl-radius)] border border-[var(--pl-line)] bg-[var(--pl-surface)] p-1 shadow-[0_12px_32px_-8px_rgba(16,24,40,.18)] ${rail ? "left-3 w-60" : "right-3 left-3"}`}
-          >
-            {workspaces.map((w) => (
-              <button
-                key={w.id}
-                type="button"
-                role="option"
-                aria-selected={w.id === ws?.id}
-                onClick={() => pickWorkspace(w.id)}
-                className="pl-sb-press flex min-h-11 w-full items-center gap-3 rounded-[calc(var(--pl-radius)-2px)] px-2 text-left text-sm hover:bg-[var(--pl-subtle)]"
-              >
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[calc(var(--pl-radius)-3px)] bg-[var(--pl-subtle)] text-xs font-bold">
-                  {w.name.charAt(0)}
-                </span>
-                <span className="min-w-0 flex-1 truncate">{w.name}</span>
-                {w.tag && <TagPill tag={w.tag} />}
-                {w.id === ws?.id && (
-                  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" className="shrink-0 text-[var(--pl-accent)]">
-                    <path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Suche */}
-      <div className="px-3 pt-2 pb-1">
-        {rail ? (
+  const renderSidebar = (isRail: boolean, drawer = false) => {
+    const fade = `pl-sb-fade ${isRail ? "opacity-0" : "opacity-100"}`;
+    return (
+      <div className="flex h-full flex-col" style={drawer ? undefined : { width: WIDE }}>
+        {/* Workspace */}
+        <div ref={drawer ? undefined : wsRef} className="relative px-3 pt-3">
           <button
             type="button"
-            onClick={() => { setCollapsed(false); requestAnimationFrame(() => searchRef.current?.focus()); }}
-            aria-label="Suchen"
-            className="pl-sb-press pl-sb-tipwrap relative hidden h-10 w-full items-center justify-center rounded-[var(--pl-radius)] text-[var(--pl-muted)] hover:bg-[var(--pl-subtle)] hover:text-[var(--pl-ink)] md:flex"
+            onClick={() => (isRail ? setHovered(true) : setWsOpen(!wsOpen))}
+            aria-haspopup="listbox"
+            aria-expanded={wsOpen}
+            className="pl-sb-press flex h-12 w-full items-center gap-3 rounded-[var(--pl-radius)] px-1 text-left hover:bg-[var(--pl-subtle)] focus-visible:outline-2 focus-visible:outline-[var(--pl-accent)]"
           >
-            <SearchIcon />
-            <Tip label="Suchen (Strg K)" />
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[calc(var(--pl-radius)-2px)] bg-[var(--pl-accent)] text-sm font-bold text-[var(--pl-surface)]">
+              {logo ?? ws?.name.charAt(0)}
+            </span>
+            <span className={`min-w-0 flex-1 ${fade}`}>
+              <span className="block truncate text-sm font-semibold">{ws?.name}</span>
+              {ws?.tag && <span className="block truncate text-xs text-[var(--pl-muted)]">{ws.tag}</span>}
+            </span>
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" className={`mr-1 shrink-0 text-[var(--pl-muted)] ${fade}`}>
+              <path d="M5 6l3-3 3 3M5 10l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
           </button>
-        ) : null}
-        <label className={`relative flex h-10 items-center ${rail ? "md:hidden" : ""}`}>
-          <span className="sr-only">Navigation durchsuchen</span>
-          <span className="pointer-events-none absolute left-3 text-[var(--pl-muted)]">
-            <SearchIcon />
-          </span>
-          <input
-            ref={searchRef}
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                const hit = firstLeaf(visible);
-                if (hit) navigate(hit);
-              } else if (e.key === "Escape" && query) {
-                e.stopPropagation();
-                setQuery("");
-              }
-            }}
-            placeholder="Suchen"
-            className="h-10 w-full rounded-[var(--pl-radius)] border border-[var(--pl-line)] bg-[var(--pl-surface)] pr-14 pl-9 text-sm text-[var(--pl-ink)] outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-[var(--pl-muted)] focus:border-[var(--pl-accent)] focus:ring-[3px] focus:ring-[var(--pl-accent)]/15 [&::-webkit-search-cancel-button]:hidden"
-          />
-          <kbd className="pointer-events-none absolute right-2 rounded border border-[var(--pl-line)] bg-[var(--pl-sidebar-bg)] px-1.5 py-0.5 font-[family-name:var(--pl-font)] text-[11px] text-[var(--pl-muted)]">
-            Strg K
-          </kbd>
-        </label>
-      </div>
 
-      {/* Navigation */}
-      <nav aria-label="Hauptnavigation" className={`min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-3 ${rail ? "md:overflow-visible" : ""}`}>
-        {visible.length === 0 && (
-          <p className="px-2 py-6 text-sm text-[var(--pl-muted)]">
-            Keine Treffer für „{query.trim()}“.{" "}
-            <button type="button" onClick={() => setQuery("")} className="font-medium text-[var(--pl-accent)]">
-              Suche leeren
-            </button>
-          </p>
-        )}
-        {visible.map((section) => (
-          <div key={section.id} className="mt-3 first:mt-2">
-            {section.label && (
-              <p className={`px-2 pb-1 text-xs font-medium text-[var(--pl-muted)] ${rail ? "md:sr-only" : ""}`}>{section.label}</p>
-            )}
-            <ul className="flex flex-col gap-0.5">
-              {section.items.map((item) => {
-                const isGroup = !!item.children?.length;
-                const open = searching || openGroups.has(item.id);
-                const childActive = isGroup && containsId(item, current);
-                return (
-                  <li key={item.id}>
-                    {isGroup ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => toggleGroup(item)}
-                          aria-expanded={open}
-                          aria-controls={`pl-sb-${item.id}`}
-                          className={rowCls(false, rail)}
-                        >
-                          <RowInner item={item} labelCls={labelCls} rail={rail} highlight={childActive && rail} />
-                          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" className={`pl-sb-chevron ${item.badge !== undefined ? "ml-1" : "ml-auto"} shrink-0 text-[var(--pl-muted)] ${open ? "rotate-90" : ""} ${rail ? "md:hidden" : ""}`}>
-                            <path d="M6 3.5L10.5 8 6 12.5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                          {rail && <Tip label={item.label} />}
-                        </button>
-                        <div id={`pl-sb-${item.id}`} className={`pl-sb-group grid ${rail ? "md:hidden" : ""}`} data-open={open}>
-                          <div className="min-h-0 overflow-hidden" inert={!open}>
-                          <ul className="ml-[19px] flex flex-col gap-0.5 border-l border-[var(--pl-line)] pl-2">
-                            {item.children!.map((child) => (
-                              <li key={child.id} className="first:mt-0.5 last:mb-1">
-                                <NavLink child item={child} active={child.id === current} onNavigate={navigate} className={rowCls(child.id === current, false, true)}>
-                                  <span className="truncate">{child.label}</span>
-                                  {child.badge !== undefined && <Badge value={child.badge} />}
-                                </NavLink>
-                              </li>
-                            ))}
-                          </ul>
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <NavLink item={item} active={item.id === current} onNavigate={navigate} className={rowCls(item.id === current, rail)}>
-                        <RowInner item={item} labelCls={labelCls} rail={rail} />
-                        {rail && <Tip label={item.label} />}
-                      </NavLink>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
-      </nav>
-
-      {/* Fußbereich */}
-      <div className="border-t border-[var(--pl-line)] px-3 pt-2 pb-3">
-        <ul className="flex flex-col gap-0.5">
-          {footer.map((item) => (
-            <li key={item.id}>
-              <NavLink item={item} active={item.id === current} onNavigate={navigate} className={rowCls(item.id === current, rail)}>
-                <RowInner item={item} labelCls={labelCls} rail={rail} />
-                {rail && <Tip label={item.label} />}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
-        <div className={`mt-2 flex items-center gap-3 rounded-[var(--pl-radius)] px-2 py-2 ${rail ? "md:justify-center md:px-0" : ""}`}>
-          <span aria-hidden className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--pl-subtle)] text-xs font-bold">
-            {user.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
-          </span>
-          <span className={`min-w-0 flex-1 ${rail ? "md:sr-only" : ""}`}>
-            <span className="block truncate text-sm font-medium">{user.name}</span>
-            {user.email && <span className="block truncate text-xs text-[var(--pl-muted)]">{user.email}</span>}
-          </span>
+          {wsOpen && !isRail && (
+            <div
+              role="listbox"
+              aria-label="Workspace wählen"
+              className="pl-sb-pop absolute top-full right-3 left-3 z-30 mt-1 rounded-[var(--pl-radius)] border border-[var(--pl-line)] bg-[var(--pl-surface)] p-1 shadow-[0_12px_32px_-8px_rgba(16,24,40,.18)]"
+            >
+              {workspaces.map((w) => (
+                <button
+                  key={w.id}
+                  type="button"
+                  role="option"
+                  aria-selected={w.id === ws?.id}
+                  onClick={() => pickWorkspace(w.id)}
+                  className="pl-sb-press flex min-h-11 w-full items-center gap-3 rounded-[calc(var(--pl-radius)-2px)] px-2 text-left text-sm hover:bg-[var(--pl-subtle)]"
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[calc(var(--pl-radius)-3px)] bg-[var(--pl-subtle)] text-xs font-bold">
+                    {w.name.charAt(0)}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{w.name}</span>
+                  {w.tag && <TagPill tag={w.tag} />}
+                  {w.id === ws?.id && (
+                    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" className="shrink-0 text-[var(--pl-accent)]">
+                      <path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-        <button
-          type="button"
-          onClick={toggleCollapsed}
-          aria-label={collapsed ? "Seitenleiste ausklappen" : "Seitenleiste einklappen"}
-          aria-expanded={!collapsed}
-          className={`pl-sb-press pl-sb-tipwrap relative mt-1 hidden h-10 w-full items-center gap-3 rounded-[var(--pl-radius)] px-2 text-sm text-[var(--pl-muted)] hover:bg-[var(--pl-subtle)] hover:text-[var(--pl-ink)] focus-visible:outline-2 focus-visible:outline-[var(--pl-accent)] md:flex ${rail ? "md:justify-center md:px-0" : ""}`}
-        >
-          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 20 20" className={`pl-sb-chevron shrink-0 ${collapsed ? "rotate-180" : ""}`}>
-            <rect x="2.75" y="3.75" width="14.5" height="12.5" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-            <path d="M7.5 4v12M12.5 8l-2 2 2 2" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span className={labelCls}>Einklappen</span>
-          {rail && <Tip label="Ausklappen" />}
-        </button>
+
+        {/* Suche: eingeklappt ist nur das Lupen-Feld sichtbar, die Lupe bleibt an ihrer Stelle */}
+        <div className="px-3 pt-2 pb-1">
+          <label className="relative flex h-10 items-center">
+            <span className="sr-only">Navigation durchsuchen</span>
+            <span className="pointer-events-none absolute left-3 text-[var(--pl-muted)]">
+              <SearchIcon />
+            </span>
+            <input
+              ref={drawer ? undefined : searchRef}
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const hit = firstLeaf(visible);
+                  if (hit) navigate(hit);
+                } else if (e.key === "Escape" && query) {
+                  e.stopPropagation();
+                  setQuery("");
+                }
+              }}
+              placeholder={isRail ? "" : "Suchen"}
+              className="h-10 w-full rounded-[var(--pl-radius)] border border-[var(--pl-line)] bg-[var(--pl-surface)] pr-14 pl-9 text-sm text-[var(--pl-ink)] outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-[var(--pl-muted)] focus:border-[var(--pl-accent)] focus:ring-[3px] focus:ring-[var(--pl-accent)]/15 [&::-webkit-search-cancel-button]:hidden"
+            />
+            <kbd className={`pointer-events-none absolute right-2 rounded border border-[var(--pl-line)] bg-[var(--pl-sidebar-bg)] px-1.5 py-0.5 font-[family-name:var(--pl-font)] text-[11px] text-[var(--pl-muted)] ${fade}`}>
+              Strg K
+            </kbd>
+          </label>
+        </div>
+
+        {/* Navigation */}
+        <nav aria-label="Hauptnavigation" className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-3">
+          {visible.length === 0 && (
+            <p className="px-2 py-6 text-sm text-[var(--pl-muted)]">
+              Keine Treffer für „{query.trim()}“.{" "}
+              <button type="button" onClick={() => setQuery("")} className="font-medium text-[var(--pl-accent)]">
+                Suche leeren
+              </button>
+            </p>
+          )}
+          {visible.map((section) => (
+            <div key={section.id} className="mt-3 first:mt-2">
+              {section.label && <p className={`h-6 truncate px-2.5 text-xs leading-6 font-medium text-[var(--pl-muted)] ${fade}`}>{section.label}</p>}
+              <ul className="flex flex-col gap-0.5">
+                {section.items.map((item) => {
+                  const isGroup = !!item.children?.length;
+                  const open = !isRail && (searching || openGroups.has(item.id) || hoverGroups.has(item.id));
+                  const childActive = isGroup && containsId(item, current);
+                  return (
+                    <li key={item.id}>
+                      {isGroup ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => toggleGroup(item, open)}
+                            onPointerEnter={() => hoverGroup(item)}
+                            onPointerLeave={() => leaveGroup(item)}
+                            aria-expanded={open}
+                            aria-controls={`pl-sb-${item.id}${drawer ? "-m" : ""}`}
+                            className={rowCls(childActive && isRail)}
+                          >
+                            <RowInner item={item} fade={fade} isRail={isRail} accent={childActive && isRail} />
+                            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" className={`pl-sb-chevron ${item.badge !== undefined ? "ml-1" : "ml-auto"} mr-1 shrink-0 text-[var(--pl-muted)] ${open ? "rotate-90" : ""} ${isRail ? "opacity-0" : ""}`}>
+                              <path d="M6 3.5L10.5 8 6 12.5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </button>
+                          <div id={`pl-sb-${item.id}${drawer ? "-m" : ""}`} className="pl-sb-group grid" data-open={open}>
+                            <div className="min-h-0 overflow-hidden" inert={!open}>
+                              <ul className="ml-[20px] flex flex-col gap-0.5 border-l border-[var(--pl-line)] pl-2">
+                                {item.children!.map((child) => (
+                                  <li key={child.id} className="first:mt-0.5 last:mb-1">
+                                    <NavLink child item={child} active={child.id === current} onNavigate={navigate} className={rowCls(child.id === current, true)}>
+                                      <span className="truncate">{child.label}</span>
+                                      {child.badge !== undefined && <Badge value={child.badge} />}
+                                    </NavLink>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <NavLink item={item} active={item.id === current} onNavigate={navigate} className={rowCls(item.id === current)}>
+                          <RowInner item={item} fade={fade} isRail={isRail} />
+                        </NavLink>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </nav>
+
+        {/* Fußbereich */}
+        <div className="border-t border-[var(--pl-line)] px-3 pt-2 pb-3">
+          <ul className="flex flex-col gap-0.5">
+            {footer.map((item) => (
+              <li key={item.id}>
+                <NavLink item={item} active={item.id === current} onNavigate={navigate} className={rowCls(item.id === current)}>
+                  <RowInner item={item} fade={fade} isRail={isRail} />
+                </NavLink>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2 flex items-center gap-3 px-1 py-2">
+            <span aria-hidden className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--pl-subtle)] text-xs font-bold">
+              {user.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
+            </span>
+            <span className={`min-w-0 flex-1 ${fade}`}>
+              <span className="block truncate text-sm font-medium">{user.name}</span>
+              {user.email && <span className="block truncate text-xs text-[var(--pl-muted)]">{user.email}</span>}
+            </span>
+          </div>
+          {!drawer && (
+            <button
+              type="button"
+              onClick={togglePinned}
+              aria-pressed={pinned}
+              className="pl-sb-press mt-1 flex h-10 w-full items-center gap-3 rounded-[var(--pl-radius)] px-[11px] text-sm text-[var(--pl-muted)] hover:bg-[var(--pl-subtle)] hover:text-[var(--pl-ink)] focus-visible:outline-2 focus-visible:outline-[var(--pl-accent)]"
+            >
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 20 20" className="shrink-0">
+                <rect x="2.75" y="3.75" width="14.5" height="12.5" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M7.5 4v12" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                {pinned && <path d="M3.5 4.5h3.25v11H3.5z" fill="currentColor" />}
+              </svg>
+              <span className={`truncate ${fade}`}>{pinned ? "Lösen" : "Anheften"}</span>
+            </button>
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="flex h-screen bg-[var(--pl-surface)] font-[family-name:var(--pl-font)] text-[var(--pl-ink)]">
       <style>{THEME_DEFAULTS + MOTION_CSS}</style>
 
-      {/* Desktop */}
-      <aside
-        className="pl-sb hidden shrink-0 border-r border-[var(--pl-line)] bg-[var(--pl-sidebar-bg)] md:block"
-        style={{ width: collapsed ? 68 : 264 }}
-      >
-        {sidebar}
-      </aside>
+      {/* Desktop: Platzhalter im Layout, die Leiste selbst liegt darüber und wächst als Overlay */}
+      <div className="pl-sb relative hidden shrink-0 md:block" style={{ width: pinned ? WIDE : RAIL }}>
+        <aside
+          ref={panelRef}
+          data-rail={rail}
+          onPointerEnter={() => {
+            if (pinned || hovered) return;
+            window.clearTimeout(openTimer.current);
+            openTimer.current = window.setTimeout(() => setHovered(true), OPEN_DELAY);
+          }}
+          onPointerLeave={() => window.clearTimeout(openTimer.current)}
+          onFocus={(e) => {
+            if (e.target.matches(":focus-visible")) {
+              keyboardInside.current = true;
+              setHovered(true);
+            }
+          }}
+          onBlur={(e) => {
+            if (!panelRef.current?.contains(e.relatedTarget as Node)) {
+              keyboardInside.current = false;
+              if (!panelRef.current?.matches(":hover")) collapseHover();
+            }
+          }}
+          className={`pl-sb absolute inset-y-0 left-0 z-30 overflow-hidden border-r border-[var(--pl-line)] bg-[var(--pl-sidebar-bg)] ${hovered && !pinned ? "shadow-[12px_0_32px_-16px_rgba(16,24,40,.28)]" : ""}`}
+          style={{ width: expanded ? WIDE : RAIL }}
+        >
+          {renderSidebar(rail)}
+        </aside>
+      </div>
 
       {/* Handy: Schublade */}
       <div className="md:hidden">
@@ -442,7 +523,7 @@ export default function SidebarClemens({
           inert={!mobileOpen}
           className={`pl-sb-drawer fixed inset-y-0 left-0 z-50 w-[min(85vw,300px)] border-r border-[var(--pl-line)] bg-[var(--pl-sidebar-bg)] shadow-[8px_0_32px_-12px_rgba(16,24,40,.25)] ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}
         >
-          {sidebar}
+          {renderSidebar(false, true)}
         </aside>
       </div>
 
@@ -469,23 +550,28 @@ export default function SidebarClemens({
   );
 }
 
-function rowCls(active: boolean, rail: boolean, child = false) {
+function rowCls(active: boolean, child = false) {
   return [
-    "pl-sb-press pl-sb-tipwrap group relative flex min-h-10 w-full items-center gap-3 rounded-[var(--pl-radius)] px-2 text-left text-sm",
+    "pl-sb-press group relative flex w-full items-center gap-3 rounded-[var(--pl-radius)] text-left text-sm whitespace-nowrap",
     "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--pl-accent)]",
     active ? "bg-[var(--pl-subtle)] font-medium text-[var(--pl-ink)]" : "text-[var(--pl-muted)] hover:bg-[var(--pl-subtle)] hover:text-[var(--pl-ink)]",
-    child ? "min-h-9" : "",
-    rail ? "md:justify-center md:px-0" : "",
+    child ? "min-h-9 px-2" : "min-h-10 px-2.5",
   ].join(" ");
 }
 
-function RowInner({ item, labelCls, rail, highlight }: { item: NavItem; labelCls: string; rail: boolean; highlight?: boolean }) {
+function RowInner({ item, fade, isRail, accent }: { item: NavItem; fade: string; isRail: boolean; accent?: boolean }) {
   return (
     <>
-      {item.icon && <span className={`flex h-5 w-5 shrink-0 items-center justify-center ${highlight ? "text-[var(--pl-accent)]" : ""}`}>{item.icon}</span>}
-      <span className={labelCls}>{item.label}</span>
-      {item.badge !== undefined && (rail ? <span aria-hidden className="absolute top-1.5 right-2 hidden h-2 w-2 rounded-full bg-[var(--pl-accent)] md:block" /> : null)}
-      {item.badge !== undefined && <span className={rail ? "ml-auto md:sr-only" : "ml-auto"}><Badge value={item.badge} /></span>}
+      {item.icon && <span className={`flex h-5 w-5 shrink-0 items-center justify-center ${accent ? "text-[var(--pl-accent)]" : ""}`}>{item.icon}</span>}
+      <span className={`truncate ${fade}`}>{item.label}</span>
+      {item.badge !== undefined && (
+        <>
+          <span aria-hidden className={`pl-sb-fade absolute top-1.5 left-[30px] h-2 w-2 rounded-full bg-[var(--pl-accent)] ${isRail ? "opacity-100" : "opacity-0"}`} />
+          <span className={`ml-auto ${fade}`}>
+            <Badge value={item.badge} />
+          </span>
+        </>
+      )}
     </>
   );
 }
@@ -508,17 +594,6 @@ function NavLink({ item, active, onNavigate, className, child, children }: { ite
       {indicator}
       {children}
     </a>
-  );
-}
-
-function Tip({ label }: { label: string }) {
-  return (
-    <span
-      aria-hidden
-      className="pl-sb-tip absolute top-1/2 left-[calc(100%+10px)] z-40 hidden -translate-y-1/2 rounded-[calc(var(--pl-radius)-2px)] bg-[var(--pl-ink)] px-2 py-1 text-xs font-medium whitespace-nowrap text-[var(--pl-surface)] md:block"
-    >
-      {label}
-    </span>
   );
 }
 
@@ -548,12 +623,11 @@ function SearchIcon() {
 function DemoPage({ workspace, parent, label }: { workspace?: string; parent?: string; label?: string }) {
   return (
     <div className="mx-auto max-w-4xl px-6 py-8 md:px-10 md:py-10">
-      <p className="text-sm text-[var(--pl-muted)]">
-        {[workspace, parent].filter(Boolean).join(" / ")}
-      </p>
+      <p className="text-sm text-[var(--pl-muted)]">{[workspace, parent].filter(Boolean).join(" / ")}</p>
       <h1 className="mt-1 text-3xl font-bold tracking-[-0.02em]">{label}</h1>
       <p className="mt-3 max-w-prose text-[var(--pl-muted)]">
-        Hier steht der Inhalt der Seite. Probier die Suche mit Strg K, klapp Gruppen auf oder die ganze Leiste ein.
+        Fahr mit der Maus über die Leiste links, sie klappt aus. Über „Domains“ oder „Sicherheit“ öffnen sich die
+        Unterpunkte. Strg K springt in die Suche.
       </p>
     </div>
   );
