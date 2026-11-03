@@ -1,0 +1,5 @@
+import type { ComponentType } from "react";
+
+// Jedes Element aus registry.json braucht hier einen Eintrag, damit die Seite es live zeigen kann.
+// Schlüssel = "name" aus registry.json.
+export const previews: Record<string, ComponentType> = {};

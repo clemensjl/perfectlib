@@ -1,26 +1,40 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --paper: #eef1f4;
+  --stage: #ffffff;
+  --ink: #15171c;
+  --muted: #5d6573;
+  --line: #d5dae1;
+  --maker-clemens: #2f5bea;
+  --maker-philipp: #d99a00;
+  --maker-raphael: #16936e;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --paper: #1a1d23;
+    --stage: #23272f;
+    --ink: #e9ecf1;
+    --muted: #9aa3b2;
+    --line: #353a45;
+    --maker-clemens: #6f8ff5;
+    --maker-philipp: #f0b72f;
+    --maker-raphael: #3cc196;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@theme inline {
+  --color-paper: var(--paper);
+  --color-stage: var(--stage);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --font-sans: var(--font-schibsted);
+  --font-mono: var(--font-jetbrains);
+}
+
+:focus-visible {
+  outline: 2px solid var(--maker-clemens);
+  outline-offset: 3px;
 }

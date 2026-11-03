@@ -1,36 +1,42 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PerfectLib
 
-## Getting Started
+Die UI-Elemente von Clemens, Philipp und Raphael: Buttons, Animationen, Login-Screens und alles andere, das wir in jedem Projekt wieder verwenden wollen.
 
-First, run the development server:
+Live: https://perfectlib.vercel.app
+
+## Ein Element ins eigene Projekt holen
+
+Jedes Element ist ein Eintrag in einer [shadcn-Registry](https://ui.shadcn.com/docs/registry). In einem React-Projekt mit Tailwind:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npx shadcn@latest add https://perfectlib.vercel.app/r/<name>.json
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Der Code landet als normale Datei im Projekt und gehört ab dann dem Projekt.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Ein neues Element hinzufügen
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Ordner `registry/<name>/` anlegen und die Komponente hineinlegen, z. B. `registry/login-clemens/login-clemens.tsx`. Die Komponente exportiert sich als `default`.
+2. Eintrag in `registry.json` unter `items` ergänzen:
+   ```json
+   {
+     "name": "login-clemens",
+     "type": "registry:block",
+     "title": "Login-Screen",
+     "description": "Ein Satz, was es ist.",
+     "author": "Clemens",
+     "categories": ["auth"],
+     "files": [{ "path": "registry/login-clemens/login-clemens.tsx", "type": "registry:component" }]
+   }
+   ```
+   `author` ist `Clemens`, `Philipp` oder `Raphael`, daraus kommt die Farbe auf der Seite. Braucht das Element npm-Pakete, gehören sie nach `dependencies` im Eintrag.
+3. In `registry/previews.tsx` die Komponente importieren und unter demselben `name` eintragen, damit die Seite sie live zeigt.
+4. `npm run build` lokal laufen lassen, dann pushen. Vercel deployt `main` automatisch.
 
-## Learn More
+## Entwicklung
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm install
+npm run dev     # http://localhost:3000
+npm run build   # baut public/r/*.json und die Seite
+```
