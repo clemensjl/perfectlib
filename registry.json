@@ -9,10 +9,29 @@
       "title": "Login & Registrieren",
       "description": "E-Mail zuerst: ein Feld, ein Knopf, danach automatisch Passwort oder Konto erstellen. Inline-Fehler, Tippfehler-Vorschlag, Passwort-Checkliste, Anmeldelink, Google und Apple. Demo: clemens@beispiel.at hat schon ein Konto.",
       "author": "Clemens",
-      "categories": ["auth"],
+      "categories": [
+        "auth"
+      ],
       "files": [
         {
           "path": "registry/login-clemens/login-clemens.tsx",
+          "type": "registry:component"
+        }
+      ]
+    },
+    {
+      "name": "sidebar-clemens",
+      "type": "registry:block",
+      "title": "App-Sidebar",
+      "description": "Workspace-Umschalter, Suche mit Strg K, aufklappbare Gruppen, Badges, einklappbar auf eine Icon-Leiste mit Tooltips, auf dem Handy als Schublade.",
+      "author": "Clemens",
+      "categories": [
+        "navigation",
+        "layout"
+      ],
+      "files": [
+        {
+          "path": "registry/sidebar-clemens/sidebar-clemens.tsx",
           "type": "registry:component"
         }
       ]
