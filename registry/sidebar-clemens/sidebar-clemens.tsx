@@ -68,7 +68,7 @@ const THEME_DEFAULTS = `
 const MOTION_CSS = `
 .pl-sb{transition:width .24s cubic-bezier(.23,1,.32,1)}
 .pl-sb-label{transition:opacity .16s ease-out}
-.pl-sb-group{display:grid;grid-template-rows:0fr;transition:grid-template-rows .22s cubic-bezier(.23,1,.32,1)}
+.pl-sb-group{grid-template-rows:0fr;transition:grid-template-rows .22s cubic-bezier(.23,1,.32,1)}
 .pl-sb-group[data-open=true]{grid-template-rows:1fr}
 .pl-sb-chevron{transition:transform .2s cubic-bezier(.23,1,.32,1)}
 .pl-sb-tip{opacity:0;transform:translateX(-4px);transition:opacity .12s ease-out,transform .12s ease-out;pointer-events:none}
@@ -324,7 +324,7 @@ export default function SidebarClemens({
           </p>
         )}
         {visible.map((section) => (
-          <div key={section.id} className="mt-3 first:mt-1">
+          <div key={section.id} className="mt-3 first:mt-2">
             {section.label && (
               <p className={`px-2 pb-1 text-xs font-medium text-[var(--pl-muted)] ${rail ? "md:sr-only" : ""}`}>{section.label}</p>
             )}
@@ -345,22 +345,24 @@ export default function SidebarClemens({
                           className={rowCls(false, rail)}
                         >
                           <RowInner item={item} labelCls={labelCls} rail={rail} highlight={childActive && rail} />
-                          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" className={`pl-sb-chevron ml-auto shrink-0 text-[var(--pl-muted)] ${open ? "rotate-90" : ""} ${rail ? "md:hidden" : ""}`}>
+                          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" className={`pl-sb-chevron ${item.badge !== undefined ? "ml-1" : "ml-auto"} shrink-0 text-[var(--pl-muted)] ${open ? "rotate-90" : ""} ${rail ? "md:hidden" : ""}`}>
                             <path d="M6 3.5L10.5 8 6 12.5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
                           </svg>
                           {rail && <Tip label={item.label} />}
                         </button>
-                        <div id={`pl-sb-${item.id}`} className={`pl-sb-group ${rail ? "md:hidden" : ""}`} data-open={open}>
-                          <ul className="ml-[19px] flex min-h-0 flex-col gap-0.5 overflow-hidden border-l border-[var(--pl-line)] pl-2" inert={!open}>
+                        <div id={`pl-sb-${item.id}`} className={`pl-sb-group grid ${rail ? "md:hidden" : ""}`} data-open={open}>
+                          <div className="min-h-0 overflow-hidden" inert={!open}>
+                          <ul className="ml-[19px] flex flex-col gap-0.5 border-l border-[var(--pl-line)] pl-2">
                             {item.children!.map((child) => (
                               <li key={child.id} className="first:mt-0.5 last:mb-1">
-                                <NavLink item={child} active={child.id === current} onNavigate={navigate} className={rowCls(child.id === current, false, true)}>
+                                <NavLink child item={child} active={child.id === current} onNavigate={navigate} className={rowCls(child.id === current, false, true)}>
                                   <span className="truncate">{child.label}</span>
                                   {child.badge !== undefined && <Badge value={child.badge} />}
                                 </NavLink>
                               </li>
                             ))}
                           </ul>
+                          </div>
                         </div>
                       </>
                     ) : (
@@ -488,9 +490,10 @@ function RowInner({ item, labelCls, rail, highlight }: { item: NavItem; labelCls
   );
 }
 
-function NavLink({ item, active, onNavigate, className, children }: { item: NavItem; active: boolean; onNavigate: (i: NavItem) => void; className: string; children: ReactNode }) {
+function NavLink({ item, active, onNavigate, className, child, children }: { item: NavItem; active: boolean; onNavigate: (i: NavItem) => void; className: string; child?: boolean; children: ReactNode }) {
+  // Hauptpunkte: Balken am Rand der Leiste. Unterpunkte: Balken auf der Führungslinie.
   const indicator = active && (
-    <span aria-hidden className="absolute top-2 bottom-2 -left-3 w-[3px] rounded-r-full bg-[var(--pl-accent)]" />
+    <span aria-hidden className={`absolute top-2 bottom-2 rounded-full bg-[var(--pl-accent)] ${child ? "-left-[10px] w-[2px]" : "-left-3 w-[3px] rounded-l-none"}`} />
   );
   return (
     <a
