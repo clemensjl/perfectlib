@@ -1,0 +1,20 @@
+name: Element oder Funktion vorschlagen
+description: Ein neues Element oder eine Verbesserung der Registry und der Seite
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idee
+    attributes:
+      label: Was soll es können?
+    validations:
+      required: true
+  - type: textarea
+    id: einsatz
+    attributes:
+      label: Wofür brauchst du es?
+      description: Projekt oder Anwendungsfall, in dem das Element landen würde
+  - type: input
+    id: referenz
+    attributes:
+      label: Referenz
+      description: Link zu einem Beispiel oder Screenshot, falls vorhanden

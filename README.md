@@ -45,3 +45,11 @@ npm install
 npm run dev     # http://localhost:3000
 npm run build   # baut public/r/*.json und die Seite
 ```
+
+## Mitmachen
+
+Siehe [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Lizenz
+
+[MIT](LICENSE)
