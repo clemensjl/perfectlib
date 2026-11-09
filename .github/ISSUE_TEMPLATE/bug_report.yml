@@ -1,0 +1,27 @@
+name: Fehler melden
+description: Ein Element oder die Seite verhält sich falsch
+labels: [bug]
+body:
+  - type: input
+    id: element
+    attributes:
+      label: Element oder Seite
+      description: Name des Elements (z. B. login-clemens) oder URL der Seite
+    validations:
+      required: true
+  - type: textarea
+    id: was
+    attributes:
+      label: Was passiert, was hast du erwartet?
+    validations:
+      required: true
+  - type: textarea
+    id: schritte
+    attributes:
+      label: Schritte zum Nachstellen
+      description: Bei einem installierten Element auch der Befehl, mit dem du es geholt hast
+  - type: input
+    id: umgebung
+    attributes:
+      label: Umgebung
+      description: Browser, Next.js- und React-Version, Tailwind-Version
